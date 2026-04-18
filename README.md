@@ -1,4 +1,4 @@
-# Annotated E(n)-Equivariant Graph Neural Network
+# Annotated E(n)-Equivariant Graph Neural Network Walkthrough
 
 A practical, annotated walkthrough for building an E(n)-Equivariant Graph Neural Network (EGNN). As an illustrative example, I perform molecular property prediction on QM9.
 
