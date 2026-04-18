@@ -1,0 +1,17 @@
+.DS_Store
+__pycache__/
+.ipynb_checkpoints/
+
+# Local environments
+.venv/
+env/
+venv/
+
+# Generated data and training artifacts
+data/
+checkpoints/
+
+# Large model/artifact files
+*.pt
+*.pth
+*.ckpt
