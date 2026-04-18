@@ -1,15 +1,13 @@
 # Annotated E(n)-Equivariant Graph Neural Network
 
-A practical, annotated walkthrough for building an E(n)-Equivariant Graph Neural Network (EGNN) for molecular property prediction on QM9.
+A practical, annotated walkthrough for building an E(n)-Equivariant Graph Neural Network (EGNN). As an illustrative example, I perform molecular property prediction on QM9.
 
-The notebook focuses on clarity over compactness: it walks through molecule featurisation, graph construction, coordinate handling, the EGNN layer, training, checkpointing, and evaluation. The long-term motivation is to use this supervised QM9 baseline as a stepping stone toward more geometry-centric models such as equivariant denoisers, diffusion models, or flow-matching models.
+The notebook is heavily annotated: it walks through molecule featurisation, graph construction, coordinate handling, the EGNN layer, training, checkpointing, and evaluation. In principle, the model can be used as a stepping stone toward more geometry-centric models such as equivariant denoisers, diffusion models, or flow-matching models.
 
 ## Contents
 
 - `annotated-egnn.ipynb`: main tutorial notebook.
 - `img/`: small diagrams used by the notebook.
-- `annotated_egnn_ref.ipynb`: earlier clean reference version.
-- `annotated_egnn_geom_drugs.ipynb`: experimental GEOM-Drugs extension.
 
 ## Setup
 
@@ -30,8 +28,6 @@ pip install rdkit
 pip install tqdm numpy pandas matplotlib jupyter
 ```
 
-Depending on your platform, PyTorch and PyG may require installation commands specific to your CUDA or CPU setup. If installation fails, check the official PyTorch and PyTorch Geometric install pages.
-
 ## Running The Tutorial
 
 Open the notebook:
@@ -46,7 +42,7 @@ Then run the cells from top to bottom. The notebook preprocesses QM9 into PyTorc
 
 - The notebook intentionally includes detailed commentary for readers who want to understand the mechanics of EGNNs rather than only run the code.
 - Generated data and checkpoints are ignored by Git. Recreate them by running the notebook.
-- The model is a supervised property-prediction baseline, not yet a diffusion model. It is designed to be a clean foundation for later denoising or generative extensions.
+- The model is a supervised property-prediction baseline. By changing the target index in the configuration class, the task can focus on any of the 19 targets available in the dataset. 
 
 ## References
 
