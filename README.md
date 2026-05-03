@@ -1,6 +1,6 @@
 # Annotated E(n)-Equivariant Graph Neural Network Walkthrough
 
-A practical, annotated walkthrough for building an E(n)-Equivariant Graph Neural Network (EGNN). As an illustrative example, I perform molecular property prediction on QM9.
+A practical, annotated walkthrough for building an E(n)-Equivariant Graph Neural Network (EGNN). As an illustrative example, I perform molecular property prediction on QM9 -- specifically, the HOMO-LUMO gap.
 
 The notebook is heavily annotated: it walks through molecule featurisation, graph construction, coordinate handling, the EGNN layer, training, checkpointing, and evaluation. In principle, the model can be used as a stepping stone toward more geometry-centric models such as equivariant denoisers, diffusion models, or flow-matching models.
 
