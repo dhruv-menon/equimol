@@ -1,4 +1,4 @@
-"""Tutorial-first EGNN components.
+"""Equivariant molecular ML components.
 
 The package keeps the core invariant/equivariant operations separate from
 dataset-specific notebooks:

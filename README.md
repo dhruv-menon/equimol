@@ -1,12 +1,12 @@
 # Equivariant Molecular ML
 
-A tutorial-first EGNN cookbook for molecules, proteins, and geometric deep learning. As an illustrative starting point, the project builds molecular property prediction on QM9 -- specifically, the HOMO-LUMO gap.
+PyTorch building blocks for equivariant architectures in molecular and protein machine learning.
 
-The notebook is heavily annotated: it walks through molecule featurisation, graph construction, coordinate handling, the EGNN layer, training, checkpointing, and evaluation. In principle, the model can be used as a stepping stone toward more geometry-centric models such as equivariant denoisers, diffusion models, or flow-matching models.
+This repository provides small, readable implementations of geometry-aware neural network components: EGNN layers, invariant attention, graph construction utilities, pooling, and equivariance tests. The goal is to make the core operations easy to inspect, test, and extend for molecular property prediction, coordinate denoising, diffusion, and protein backbone modeling.
 
 ## Contents
 
-- `annotated-egnn.ipynb`: main tutorial notebook.
+- `annotated-egnn.ipynb`: annotated QM9 property-prediction example.
 - `img/`: small diagrams used by the notebook.
 - `src/egnn/`: reusable EGNN layer, graph construction, geometry, and model code.
 - `tests/`: executable checks for equivariance, invariance, and graph shapes.
@@ -28,7 +28,7 @@ pip install rdkit
 pip install tqdm numpy pandas matplotlib jupyter pytest
 ```
 
-## Running The Tutorial
+## Running The Example
 
 Open the notebook:
 
@@ -52,7 +52,7 @@ uv run pytest -q
 
 ## Notes
 
-- The notebook intentionally includes detailed commentary for readers who want to understand the mechanics of EGNNs rather than only run the code.
+- The notebook includes detailed commentary for readers who want to understand the mechanics of EGNNs rather than only run the code.
 - Generated data and checkpoints are ignored by Git. Recreate them by running the notebook.
 - The model is a supervised property-prediction baseline. By changing the target index in the configuration class, the task can focus on any of the 19 targets available in the dataset. 
 

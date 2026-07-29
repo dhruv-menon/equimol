@@ -1,4 +1,4 @@
-"""Geometry utilities for equivariance tests and tutorials.
+"""Geometry utilities for equivariance tests and molecular ML components.
 
 Problem solved:
     Apply rigid transformations to coordinates while keeping scalar node

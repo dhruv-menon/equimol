@@ -88,7 +88,7 @@ def radius_graph(
         ``edge_index`` with shape ``[2, E]``.
 
     Complexity:
-        This tutorial implementation computes dense distances, so it is
+        This readable implementation computes dense distances, so it is
         ``O(N^2D)``. Production code should use spatial indexing or PyG kernels.
     """
 
