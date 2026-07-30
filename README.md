@@ -1,8 +1,25 @@
-# Equivariant Molecular ML
+> 🚧 **Under Construction:**  
+> This is an initial release of the functionality. Further documentation and cleanup are still in progress.
+
+# Equivariant Molecular Machine-Learning
 
 PyTorch building blocks for equivariant architectures in molecular and protein machine learning.
 
-This repository provides small, readable implementations of geometry-aware neural network components: EGNN layers, invariant attention, graph construction utilities, pooling, and equivariance tests. The goal is to make the core operations easy to inspect, test, and extend for molecular property prediction, coordinate denoising, diffusion, and protein backbone modeling.
+This repository starts from first principles and builds toward practical geometric deep learning systems: EGNN layers, invariant attention, graph construction, pooling, equivariance tests, coordinate denoising, diffusion, and protein backbone modeling. The goal is to make the core operations small, readable, testable, and easy to extend.
+
+I've tried my best to make the code as accessible as possible. The documentation is generous to aid beginners. 
+
+## Roadmap
+
+| Module | Topic | Status |
+|---|---|---|
+| 00 | Geometry and equivariance primer | Planned |
+| 01 | EGNN from scratch | In progress |
+| 02 | Graph construction and pooling | Planned |
+| 03 | QM9 property prediction | Planned |
+| 04 | Coordinate denoising and diffusion | Planned |
+| 05 | Protein backbone diffusion | Planned |
+| 06 | Invariant attention / IPA-style blocks | Planned |
 
 ## Contents
 
