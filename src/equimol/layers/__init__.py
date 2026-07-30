@@ -1,6 +1,6 @@
 """Reusable EGNN building blocks."""
 
-from egnn.utils import segment_sum
+from equimol.utils import segment_sum
 
 from .attention import InvariantEdgeAttention, segmented_softmax
 from .egnn import EGNNLayer

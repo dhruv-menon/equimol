@@ -5,7 +5,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from egnn.layers import EGNNLayer, global_add_pool
+from equimol.layers import EGNNLayer, global_add_pool
 
 # ----------------------------------------
 # A regressor built on an EGNN backbone that supports a single readout.

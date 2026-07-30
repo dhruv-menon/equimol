@@ -23,9 +23,9 @@ I've tried my best to make the code as accessible as possible. The documentation
 
 ## Contents
 
-- `annotated-egnn.ipynb`: annotated QM9 property-prediction example.
-- `img/`: small diagrams used by the notebook.
-- `src/egnn/`: reusable EGNN layer, graph construction, geometry, and model code.
+- `notebooks/01_egnn_from_scratch.ipynb`: annotated QM9 property-prediction example.
+- `assets/figures/`: diagrams used by notebooks and docs.
+- `src/equimol/`: reusable EGNN layer, graph construction, geometry, and model code.
 - `tests/`: executable checks for equivariance, invariance, and graph shapes.
 
 ## Setup
@@ -50,7 +50,7 @@ pip install tqdm numpy pandas matplotlib jupyter pytest
 Open the notebook:
 
 ```bash
-jupyter notebook annotated-egnn.ipynb
+jupyter notebook notebooks/01_egnn_from_scratch.ipynb
 ```
 
 Then run the cells from top to bottom. The notebook preprocesses QM9 into PyTorch Geometric `Data` objects, trains an EGNN regressor on the HOMO-LUMO gap, and evaluates the best checkpoint on a held-out test split.

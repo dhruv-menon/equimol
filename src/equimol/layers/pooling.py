@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import torch
-from egnn.utils import segment_sum
+from equimol.utils import segment_sum
 
 # ----------------------------------------
 # Pooling layers for invariant graph-level readouts.

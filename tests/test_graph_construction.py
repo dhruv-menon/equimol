@@ -1,6 +1,6 @@
 import torch
 
-from egnn.graph import fully_connected_edges, knn_graph, radius_graph
+from equimol.graph import fully_connected_edges, knn_graph, radius_graph
 
 
 def test_fully_connected_edges_shape_without_self_edges():

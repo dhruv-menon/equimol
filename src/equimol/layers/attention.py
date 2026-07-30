@@ -43,7 +43,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from egnn.utils import segment_sum
+from equimol.utils import segment_sum
 
 
 def segmented_softmax(scores: torch.Tensor, dst: torch.Tensor, num_nodes: int) -> torch.Tensor:

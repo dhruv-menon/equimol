@@ -1,9 +1,9 @@
 import torch
 
-from egnn.geometry import random_rotation, rotate, translate
-from egnn.graph import fully_connected_edges
-from egnn.layers import EGNNLayer
-from egnn.models import EGNNRegressor
+from equimol.geometry import random_rotation, rotate, translate
+from equimol.graph import fully_connected_edges
+from equimol.layers import EGNNLayer
+from equimol.models import EGNNRegressor
 
 
 def _permute_edges(edge_index, perm):
