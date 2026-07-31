@@ -8,7 +8,7 @@ dataset-specific notebooks:
 - directed graph edges: ``edge_index`` with shape ``[2, E]``
 """
 
-from .graph import fully_connected_edges, knn_graph, radius_graph
+from .graphs import fully_connected_edges, knn_graph, radius_graph
 from .layers import EGNNLayer, segment_sum
 from .models import EGNNRegressor
 

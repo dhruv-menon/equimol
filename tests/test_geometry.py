@@ -1,7 +1,7 @@
 import torch
 
 from equimol.utils.geometry import random_rotation, rotate, squared_distances, translate
-from equimol.graph import fully_connected_edges
+from equimol.graphs import fully_connected_edges
 
 
 def test_squared_distances_are_rigid_motion_invariant():
