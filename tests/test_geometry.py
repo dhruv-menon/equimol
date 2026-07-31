@@ -1,6 +1,6 @@
 import torch
 
-from equimol.geometry import random_rotation, rotate, squared_distances, translate
+from equimol.utils.geometry import random_rotation, rotate, squared_distances, translate
 from equimol.graph import fully_connected_edges
 
 
