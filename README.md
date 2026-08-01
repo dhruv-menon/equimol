@@ -1,32 +1,180 @@
-> 🚧 **Under Construction:**  
-> This is an initial release of the functionality. Further documentation and cleanup are still in progress.
+# Equivariant Molecular Machine Learning
 
-# Equivariant Molecular Machine-Learning
+`equimol` is a PyTorch-native library of E(n)-equivariant neural network building blocks for molecular and protein machine learning.
 
-PyTorch building blocks for equivariant architectures in molecular and protein machine learning.
+The goal is to provide small, readable, testable modules for building EGNN-style architectures without requiring a full graph learning framework. The package focuses on explicit tensor contracts, symmetry behavior, and research-grade implementation details.
 
-This repository starts from first principles and builds toward practical geometric deep learning systems: EGNN layers, invariant attention, graph construction, pooling, equivariance tests, coordinate denoising, diffusion, and protein backbone modeling. The goal is to make the core operations small, readable, testable, and easy to extend.
+Current scope:
 
-I've tried my best to make the code as accessible as possible. The documentation is generous to aid beginners. 
+- E(n)-equivariant message passing layers
+- invariant edge attention
+- molecular and protein graph construction utilities
+- geometric utilities for rigid transformations
+- graph-level property prediction models
+- tests for equivariance, invariance, and graph construction behavior
+
+The repository is still early, but the intended direction is a practical library for researchers and engineers who want to compose their own equivariant molecular models from PyTorch modules.
+
+## Design Contract
+
+Most modules follow the same core EGNN tensor convention:
+
+```python
+h, x = layer(h, x, edge_index, edge_attr=None)
+```
+
+where:
+
+- `h`: invariant scalar node features with shape [N, H]
+- `x`: equivariant coordinates with shape [N, 3]
+- `edge_index`: directed graph edges with shape [2, E]
+- `edge_attr`: optional invariant edge features with shape [E, A]
+
+The expected symmetry behavior is:
+
+- scalar node features remain invariant under translations and rotations
+- coordinates transform equivariantly under translations and rotations
+- graph-level scalar predictions are invariant after permutation-invariant pooling
+- no layer should feed absolute coordinates directly into scalar MLPs
+
+## Package Layout
+
+```text
+src/equimol/
+  graphs/
+    fully_connected.py
+    knn.py
+    radius.py
+    utils.py
+
+  layers/
+    attention.py
+    attentive_egnn.py
+    egnn.py
+    pooling.py
+
+  models/
+    backbones.py
+    regressors.py
+
+  utils/
+    geometry.py
+    segment_sum.py
+```
+
+## Current API
+
+Layers:
+
+```python
+from equimol.layers import EGNNLayer
+from equimol.layers import AttentiveEGNNLayer
+from equimol.layers import InvariantEdgeAttention
+```
+
+Backbones and models:
+
+```python
+from equimol.models import EGNNBackbone
+from equimol.models import AttentiveEGNNBackbone
+from equimol.models import EGNNRegressor
+from equimol.models import AttentiveEGNNRegressor
+```
+
+Graph builders:
+
+```python
+from equimol.graphs import fully_connected_edges
+from equimol.graphs import radius_graph
+from equimol.graphs import knn_graph
+```
+
+Example:
+
+```python
+import torch
+
+from equimol.graphs import fully_connected_edges
+from equimol.models import EGNNRegressor
+
+h = torch.randn(8, 16)                # [N, F]
+x = torch.randn(8, 3)                 # [N, 3]
+edge_index = fully_connected_edges(8) # [2, E]
+
+model = EGNNRegressor(
+    node_feat_dim=16,
+    hidden_dim=128,
+    num_layers=4,
+)
+
+y = model(h, x, edge_index)           # [B]
+```
 
 ## Roadmap
 
-| Module | Topic | Status |
-|---|---|---|
-| 00 | Geometry and equivariance primer | Planned |
-| 01 | EGNN from scratch | In progress |
-| 02 | Graph construction and pooling | Planned |
-| 03 | QM9 property prediction | Planned |
-| 04 | Coordinate denoising and diffusion | Planned |
-| 05 | Protein backbone diffusion | Planned |
-| 06 | Invariant attention / IPA-style blocks | Planned |
+### Completed
 
-## Contents
+Stage 1: Core EGNN package contract
 
-- `notebooks/01_egnn_from_scratch.ipynb`: annotated QM9 property-prediction example.
-- `assets/figures/`: diagrams used by notebooks and docs.
-- `src/equimol/`: reusable EGNN layer, graph construction, geometry, and model code.
-- `tests/`: executable checks for equivariance, invariance, and graph shapes.
+- `src/equimol/` package layout
+- vanilla `EGNNLayer`
+- `InvariantEdgeAttention`
+- `AttentiveEGNNLayer`
+- `EGNNBackbone`
+- `AttentiveEGNNBackbone`
+- `EGNNRegressor`
+- `AttentiveEGNNRegressor`
+- fully connected, radius, and kNN graph construction utilities
+- geometry utilities for translation, rotation, and centering
+- `segment_sum`
+- equivariance and graph construction tests
+- first notebook renamed to `notebooks/01_egnn_from_scratch.ipynb`
+
+### In Progress
+
+Stage 2: Graph construction, pooling, and task-model reliability
+
+- regressor tests for output shape [B]
+- translation, rotation, and permutation invariance tests for graph regressors
+- batched graph pooling tests
+- `global_mean_pool`
+- configurable pooling in regressors
+- clearer graph construction contracts for dense, radius, and kNN edges
+- documentation for when to use dense O(N^2) graphs versus sparse molecular/protein graphs
+
+### Planned
+
+Stage 3: Geometric feature layers
+
+- radial distance expansion
+- Gaussian radial basis features
+- safe norm and unit vector helpers
+- bond angle utilities
+- dihedral angle utilities
+- tests showing radial, angle, and torsion features are E(n)-invariant
+
+Stage 4: Molecular task models
+
+- graph classifiers
+- node-level prediction heads
+- coordinate denoising models
+- examples showing molecular property prediction and coordinate noise prediction
+- documentation connecting denoising objectives to diffusion models
+
+Stage 5: Protein and higher-order geometry
+
+- sequential/local residue graph construction
+- protein backbone graph helpers
+- N, CA, C, O coordinate utilities
+- CA-CA distance and backbone bond-length metrics
+- angle-aware EGNN layers
+- local-frame utilities for protein structure modeling
+
+Longer-term scope:
+
+- keep the library focused on E(n)-equivariant scalar/vector EGNN-style models
+- avoid becoming a general PyTorch Geometric replacement
+- add higher-order geometry only when the symmetry contract remains explicit and testable
 
 ## Setup
 
@@ -36,42 +184,21 @@ Create and sync the uv environment:
 uv sync --group dev
 ```
 
-If you prefer a manual environment, install the same core dependencies:
-
-```bash
-pip install torch torchvision torchaudio
-pip install torch-geometric
-pip install rdkit
-pip install tqdm numpy pandas matplotlib jupyter pytest
-```
-
-## Running The Example
-
-Open the notebook:
-
-```bash
-jupyter notebook notebooks/01_egnn_from_scratch.ipynb
-```
-
-Then run the cells from top to bottom. The notebook preprocesses QM9 into PyTorch Geometric `Data` objects, trains an EGNN regressor on the HOMO-LUMO gap, and evaluates the best checkpoint on a held-out test split.
-
-## Running The Tests
-
-The first package tests focus on the core EGNN contract:
-
-- invariant scalar node features stay invariant under rigid motions;
-- coordinates transform equivariantly under translations and rotations;
-- graph-level scalar predictions are invariant to node permutations and E(n) transforms.
+Run tests:
 
 ```bash
 uv run pytest -q
 ```
 
-## Notes
+## Notebook
 
-- The notebook includes detailed commentary for readers who want to understand the mechanics of EGNNs rather than only run the code.
-- Generated data and checkpoints are ignored by Git. Recreate them by running the notebook.
-- The model is a supervised property-prediction baseline. By changing the target index in the configuration class, the task can focus on any of the 19 targets available in the dataset. 
+The first notebook is:
+
+```text
+notebooks/01_egnn_from_scratch.ipynb
+```
+
+It introduces the EGNN computation from first principles using molecular graph data. The reusable code lives under `src/equimol/`; notebooks should explain and demonstrate the package rather than hide important logic inside notebook cells.
 
 ## References
 
