@@ -1,7 +1,7 @@
 > 🚧 **Under Construction:**  
 > This is an initial release of the functionality. Further documentation and cleanup are still in progress.
 
-# Equivariant Molecular Machine Learning
+# equimol
 
 `equimol` is a PyTorch-native library of E(n)-equivariant neural network building blocks for molecular and protein machine learning.
 

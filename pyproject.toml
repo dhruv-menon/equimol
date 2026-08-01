@@ -1,7 +1,7 @@
 [project]
-name = "equivariant-molecular-ml"
+name = "equimol"
 version = "0.1.0"
-description = "PyTorch building blocks for equivariant molecular and protein machine learning."
+description = "PyTorch-native E(n)-equivariant neural networks for molecular and protein machine learning."
 requires-python = ">=3.10"
 dependencies = [
     "torch>=2.3",
@@ -38,4 +38,5 @@ markers = [
     "equivariance: translation, rotation, and permutation symmetry tests",
     "geometry: geometric utility tests",
     "graph: graph construction tests",
+    "regressor: graph-level EGNN regressor tests",
 ]
