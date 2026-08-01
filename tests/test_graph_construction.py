@@ -1,6 +1,9 @@
 import torch
+import pytest
 
 from equimol.graphs import fully_connected_edges, knn_graph, radius_graph
+
+pytestmark = pytest.mark.graph
 
 
 def test_fully_connected_edges_shape_without_self_edges():

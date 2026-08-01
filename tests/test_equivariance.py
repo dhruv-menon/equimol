@@ -1,9 +1,12 @@
 import torch
+import pytest
 
-from equimol.utils.geometry import random_rotation, rotate, translate
+from equimol.utils import random_rotation, rotate, translate
 from equimol.graphs import fully_connected_edges
 from equimol.layers import EGNNLayer
 from equimol.models import EGNNRegressor
+
+pytestmark = pytest.mark.equivariance
 
 
 def _permute_edges(edge_index, perm):

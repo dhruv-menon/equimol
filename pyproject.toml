@@ -31,3 +31,11 @@ packages = ["src/equimol"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+    "attention: invariant edge attention and segmented softmax tests",
+    "attentive_egnn: attention-augmented EGNN layer tests",
+    "backbone: stacked EGNN backbone tests",
+    "equivariance: translation, rotation, and permutation symmetry tests",
+    "geometry: geometric utility tests",
+    "graph: graph construction tests",
+]

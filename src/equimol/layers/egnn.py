@@ -27,7 +27,7 @@ from equimol.utils import segment_sum
 #     coordinates under E(n) transforms.
 #
 # Complexity:
-#    - O(EH + ED) per layer. Dense graphs have E=N(N-1).
+#    - O(EH + ED) per layer. Dense graphs have E = N(N-1).
 # ----------------------------------------
 
 

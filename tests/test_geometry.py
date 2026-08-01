@@ -1,7 +1,10 @@
 import torch
+import pytest
 
-from equimol.utils.geometry import random_rotation, rotate, squared_distances, translate
+from equimol.utils import random_rotation, rotate, squared_distances, translate
 from equimol.graphs import fully_connected_edges
+
+pytestmark = pytest.mark.geometry
 
 
 def test_squared_distances_are_rigid_motion_invariant():
