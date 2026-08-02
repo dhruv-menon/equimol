@@ -5,7 +5,7 @@ from typing import Optional
 import torch
 from torch import nn
 
-from equimol.layers.pooling import global_add_pool
+from equimol.layers.pooling import global_add_pool, global_mean_pool
 from equimol.models.backbones import EGNNBackbone, AttentiveEGNNBackbone
 
 # ----------------------------------------
@@ -33,6 +33,15 @@ from equimol.models.backbones import EGNNBackbone, AttentiveEGNNBackbone
 #    - O(LE) message passing for L layers and E edges.
 # ----------------------------------------
 
+def _get_pooling(pooling: str):
+    if pooling == "sum":
+        return global_add_pool
+    elif pooling == "mean":
+        return global_mean_pool
+    else:
+        raise ValueError(f"pooling type: {pooling} is not supported by equimol")
+
+
 class EGNNRegressor(nn.Module):
     def __init__(self,
                  node_feat_dim: int,
@@ -44,6 +53,7 @@ class EGNNRegressor(nn.Module):
                  update_coords: bool = True,
                  dropout: float = 0.0,
                  coord_step_size: float = 0.1,
+                 pooling: str = "sum",
                  eps: float = 1e-8) -> None:
         super().__init__()
 
@@ -67,6 +77,8 @@ class EGNNRegressor(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden_dim, 1),
         )
+
+        self.pool = _get_pooling(pooling = pooling)
 
     def forward(self,
                 h: torch.Tensor,
@@ -94,7 +106,7 @@ class EGNNRegressor(nn.Module):
                                  x = x,
                                  edge_index = edge_index,
                                  edge_attr = edge_attr)
-        graph_state = global_add_pool(updated_h, batch)
+        graph_state = self.pool(updated_h, batch)
         return self.readout(graph_state).squeeze(-1)
 
 
@@ -136,6 +148,7 @@ class AttentiveEGNNRegressor(nn.Module):
                  residual: bool = True,
                  dropout: float = 0.0,
                  coord_step_size: float = 0.1,
+                 pooling: str = "sum",
                  eps: float = 1e-8) -> None:
         super().__init__()
 
@@ -159,6 +172,8 @@ class AttentiveEGNNRegressor(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden_dim, 1),
         )
+
+        self.pool = _get_pooling(pooling = pooling)
 
     def forward(self,
                 h: torch.Tensor,
@@ -186,5 +201,5 @@ class AttentiveEGNNRegressor(nn.Module):
                                  x = x,
                                  edge_index = edge_index,
                                  edge_attr = edge_attr)
-        graph_state = global_add_pool(updated_h, batch)
+        graph_state = self.pool(updated_h, batch)
         return self.readout(graph_state).squeeze(-1)
