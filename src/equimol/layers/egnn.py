@@ -4,6 +4,7 @@ from typing import Optional
 import torch
 from torch import nn
 
+from equimol.layers.distance import PairwiseDistance
 from equimol.utils import segment_sum
 
 # ----------------------------------------
@@ -47,6 +48,8 @@ class EGNNLayer(nn.Module):
         self.update_coords = update_coords
         self.coord_step_size = coord_step_size
         self.eps = eps
+        self.squared_distance = PairwiseDistance(squared = True, eps = eps)
+        self.distance = PairwiseDistance(squared = False, eps = eps)
 
         # compile the edge input dim
         edge_input_dim = 2 * hidden_dim + 1 + edge_attr_dim
@@ -99,7 +102,7 @@ class EGNNLayer(nn.Module):
         # collect src & dst nodes
         src, dst = edge_index # src: [E], dst: [E]
         rel = x[src] - x[dst] # rel: [E, D]
-        radial = (rel * rel).sum(dim = -1, keepdim = True) # radial: [E, 1]
+        radial = self.squared_distance(x, edge_index) # radial: [E, 1]
 
         if edge_attr is None:
             edge_attr = torch.zeros(edge_index.size(1), 0, device = h.device, dtype = h.dtype) # [E, 0]
@@ -108,7 +111,7 @@ class EGNNLayer(nn.Module):
         messages = self.edge_mlp(edge_input) # [E, M]
 
         if self.update_coords:
-            dist = torch.sqrt(radial + self.eps) # [E, 1]
+            dist = self.distance(x, edge_index) # [E, 1]
             direction = rel / dist # [E, D]
             coord_weight = torch.tanh(self.coord_mlp(messages)) * self.coord_step_size # [E, 1]
             delta_x = torch.zeros_like(x) # [N, D]

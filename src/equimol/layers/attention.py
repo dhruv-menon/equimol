@@ -4,6 +4,7 @@ from typing import Optional
 import torch
 from torch import nn
 
+from equimol.layers.distance import PairwiseDistance
 from equimol.utils import segment_sum
 
 # ------------------------------------
@@ -94,6 +95,7 @@ class InvariantEdgeAttention(nn.Module):
         self.edge_attr_dim = edge_attr_dim
         self.attention_dim = attention_dim
         self.dropout = dropout
+        self.squared_distance = PairwiseDistance(squared = True)
 
         # define an MLP that maps [h_src, h_dst, radial, edge_attr] to
         # one scalar score per edge: [E, 2H + 1 + A] -> [E, 1].
@@ -118,12 +120,7 @@ class InvariantEdgeAttention(nn.Module):
         src, dst = edge_index # [E]
         h_src = h[src] # [E, H]
         h_dst = h[dst] # [E, H]
-        x_src = x[src] # [E, D]
-        x_dst = x[dst] # [E, D]
-
-        # compute radial = ||x_src - x_dst||^2 with shape [E, 1].
-        relative = x_src - x_dst # [E, D]
-        radial = (relative * relative).sum(dim = 1, keepdim = True) # [E, 1]
+        radial = self.squared_distance(x, edge_index) # [E, 1]
 
         #  handle edge_attr = None as an empty [E, 0] tensor
         if edge_attr is None:

@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from equimol.utils import segment_sum
 from equimol.layers.attention import InvariantEdgeAttention
+from equimol.layers.distance import PairwiseDistance
 # ----------------------------------------
 # An EGNN layer with edge attention
 #   - In the vanilla EGNN, each edge is assigned an equal weight.
@@ -30,6 +31,8 @@ class AttentiveEGNNLayer(nn.Module):
         self.residual = residual 
         self.coord_step_size = coord_step_size
         self.eps = eps
+        self.squared_distance = PairwiseDistance(squared = True, eps = eps)
+        self.distance = PairwiseDistance(squared = False, eps = eps)
 
         # compile the edge input dim
         edge_input = 2 * hidden_dim + 1 + edge_attr_dim
@@ -81,7 +84,7 @@ class AttentiveEGNNLayer(nn.Module):
         x_dst = x[dst] # [E, 3]
 
         relative = x_src - x_dst # [E, 3]
-        radial = (relative * relative).sum(dim = -1, keepdim = True) # [E, 1]
+        radial = self.squared_distance(x, edge_index) # [E, 1]
 
         if edge_attr is None:
             edge_attr = torch.zeros(edge_index.size(1), 0, device = h.device, dtype = h.dtype) # [E, 0]
@@ -93,7 +96,7 @@ class AttentiveEGNNLayer(nn.Module):
         weighted_message = message * alpha # [E, message_dim]
 
         # ----- update coords -----
-        distance = torch.sqrt(radial + self.eps) # [E, 1]
+        distance = self.distance(x, edge_index) # [E, 1]
         direction = relative / distance # [E, 3]
         coord_update = torch.tanh(self.coord_mlp(message)) # [E, 1]
         weighted_coord_update = alpha * coord_update * self.coord_step_size
