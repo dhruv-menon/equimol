@@ -3,6 +3,7 @@
 from equimol.utils import segment_sum
 
 from .attention import InvariantEdgeAttention, segmented_softmax
+from .distance import PairwiseDistance
 from .egnn import EGNNLayer
 from .pooling import global_add_pool, global_mean_pool
 from .attentive_egnn import AttentiveEGNNLayer
@@ -13,6 +14,7 @@ __all__ = [
     "EGNNLayer",
     "GaussianRadialBasis",
     "InvariantEdgeAttention",
+    "PairwiseDistance",
     "global_add_pool",
     "global_mean_pool",
     "segment_sum",

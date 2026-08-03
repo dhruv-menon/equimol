@@ -5,6 +5,8 @@ from typing import Optional
 import torch
 from torch import nn
 
+from equimol.layers.distance import PairwiseDistance
+
 
 class GaussianRadialBasis(nn.Module):
     """Gaussian radial basis expansion for pairwise distances.
@@ -33,6 +35,7 @@ class GaussianRadialBasis(nn.Module):
         self.num_basis = num_basis
         self.cutoff = cutoff
         self.eps = eps
+        self.distance = PairwiseDistance(squared = False, eps = eps)
 
         if num_basis <= 0:
             raise ValueError(f"Expected positive num_basis, got {num_basis}")
@@ -53,10 +56,7 @@ class GaussianRadialBasis(nn.Module):
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor) -> torch.Tensor:
         """Return radial edge features with shape [E, K]."""
 
-        src, dst = edge_index
-        relative = x[src] - x[dst] # [E, D]
-        distance = torch.sqrt(relative.pow(2).sum(dim = -1, keepdim = True) + self.eps) # [E, 1]
-
+        distance = self.distance(x, edge_index) # [E, 1]
         centers = self.centers.to(dtype = x.dtype)
         rbf = torch.exp(-self.gamma * (distance - centers).pow(2)) # [E, K]
 
