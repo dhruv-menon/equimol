@@ -9,7 +9,7 @@ dataset-specific notebooks:
 """
 
 from .graphs import fully_connected_edges, knn_graph, radius_graph
-from .layers import AttentiveEGNNLayer, EGNNLayer, InvariantEdgeAttention, global_mean_pool, segment_sum
+from .layers import AttentiveEGNNLayer, EGNNLayer, GaussianRadialBasis, InvariantEdgeAttention, global_mean_pool, segment_sum
 from .models import AttentiveEGNNBackbone, AttentiveEGNNRegressor, EGNNBackbone, EGNNRegressor
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "EGNNLayer",
     "EGNNBackbone",
     "EGNNRegressor",
+    "GaussianRadialBasis",
     "InvariantEdgeAttention",
     "fully_connected_edges",
     "global_mean_pool",

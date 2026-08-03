@@ -38,5 +38,7 @@ markers = [
     "equivariance: translation, rotation, and permutation symmetry tests",
     "geometry: geometric utility tests",
     "graph: graph construction tests",
+    "pooling: graph-level pooling layer tests",
+    "radial: radial distance expansion tests",
     "regressor: graph-level EGNN regressor tests",
 ]
