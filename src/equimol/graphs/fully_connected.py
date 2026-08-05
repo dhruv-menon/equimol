@@ -1,7 +1,6 @@
 """Fully connected graph construction."""
 
 from __future__ import annotations
-
 from typing import Optional
 
 import torch
@@ -15,7 +14,7 @@ def fully_connected_edges(
     batch: Optional[torch.Tensor] = None,
     loop: bool = False,
     device: Optional[torch.device] = None,
-) -> torch.Tensor:
+    ) -> torch.Tensor:
     """Build directed dense edges within each graph.
 
     Args:
