@@ -46,7 +46,7 @@ def sequential_edges(
         if loop:
             rows.append(nodes)
             cols.append(nodes)
-
+            
         for offset in range(1, window + 1):
             if offset >= nodes.numel(): 
                 break
