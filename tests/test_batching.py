@@ -2,6 +2,7 @@ import pytest
 import torch
 
 from equimol.batching import dense_to_sparse_nodes
+from equimol.batching import sparse_to_dense_nodes
 
 pytestmark = pytest.mark.batching
 
@@ -145,3 +146,167 @@ def test_dense_to_sparse_nodes_validates_leading_shapes():
 
     with pytest.raises(ValueError, match="Alignment mismatch"):
         dense_to_sparse_nodes(h, x, mask)
+
+
+def test_sparse_to_dense_nodes_reconstructs_basic_values():
+    values = torch.tensor(
+        [
+            [10.0, 100.0],
+            [20.0, 200.0],
+            [30.0, 300.0],
+        ]
+    )
+    batch = torch.tensor([0, 0, 1])
+    local_index = torch.tensor([0, 1, 0])
+
+    dense = sparse_to_dense_nodes(values, batch, local_index)
+
+    expected = torch.tensor(
+        [
+            [[10.0, 100.0], [20.0, 200.0]],
+            [[30.0, 300.0], [0.0, 0.0]],
+        ]
+    )
+    assert torch.equal(dense, expected)
+
+
+def test_sparse_to_dense_nodes_round_trips_dense_to_sparse(dense_batch):
+    h, x, mask = dense_batch
+    h_sparse, _, batch, local_index = dense_to_sparse_nodes(h, x, mask)
+
+    reconstructed = sparse_to_dense_nodes(
+        h_sparse,
+        batch,
+        local_index,
+        num_graphs=h.size(0),
+        max_nodes=h.size(1),
+    )
+
+    valid = mask.bool()
+    assert torch.equal(reconstructed[valid], h[valid])
+    assert torch.count_nonzero(reconstructed[~valid]) == 0
+
+
+def test_sparse_to_dense_nodes_supports_custom_fill_value():
+    values = torch.tensor([[1.0], [2.0]])
+    batch = torch.tensor([0, 1])
+    local_index = torch.tensor([0, 0])
+
+    dense = sparse_to_dense_nodes(
+        values,
+        batch,
+        local_index,
+        num_graphs=2,
+        max_nodes=3,
+        fill_value=-1.0,
+    )
+
+    expected = torch.tensor(
+        [
+            [[1.0], [-1.0], [-1.0]],
+            [[2.0], [-1.0], [-1.0]],
+        ]
+    )
+    assert torch.equal(dense, expected)
+
+
+def test_sparse_to_dense_nodes_uses_explicit_shape():
+    values = torch.tensor([[1.0, 2.0]])
+    batch = torch.tensor([0])
+    local_index = torch.tensor([0])
+
+    dense = sparse_to_dense_nodes(
+        values,
+        batch,
+        local_index,
+        num_graphs=3,
+        max_nodes=4,
+    )
+
+    assert dense.shape == torch.Size([3, 4, 2])
+    assert torch.equal(dense[0, 0], values[0])
+    assert torch.count_nonzero(dense[1:]) == 0
+
+
+def test_sparse_to_dense_nodes_handles_non_contiguous_graph_ids():
+    values = torch.tensor([[1.0], [2.0]])
+    batch = torch.tensor([0, 2])
+    local_index = torch.tensor([0, 0])
+
+    dense = sparse_to_dense_nodes(values, batch, local_index)
+
+    assert dense.shape == torch.Size([3, 1, 1])
+    assert torch.equal(dense[:, 0, 0], torch.tensor([1.0, 0.0, 2.0]))
+
+
+def test_sparse_to_dense_nodes_handles_local_index_holes():
+    values = torch.tensor([[1.0], [2.0]])
+    batch = torch.tensor([0, 0])
+    local_index = torch.tensor([0, 3])
+
+    dense = sparse_to_dense_nodes(values, batch, local_index)
+
+    expected = torch.tensor([[[1.0], [0.0], [0.0], [2.0]]])
+    assert torch.equal(dense, expected)
+
+
+def test_sparse_to_dense_nodes_handles_empty_sparse_input_with_explicit_shape():
+    values = torch.empty((0, 2), dtype=torch.float64)
+    batch = torch.empty((0,), dtype=torch.long)
+    local_index = torch.empty((0,), dtype=torch.long)
+
+    dense = sparse_to_dense_nodes(
+        values,
+        batch,
+        local_index,
+        num_graphs=2,
+        max_nodes=3,
+        fill_value=5.0,
+    )
+
+    assert dense.shape == torch.Size([2, 3, 2])
+    assert dense.dtype == torch.float64
+    assert torch.all(dense == 5.0)
+
+
+def test_sparse_to_dense_nodes_empty_sparse_input_requires_explicit_shape():
+    values = torch.empty((0, 2))
+    batch = torch.empty((0,), dtype=torch.long)
+    local_index = torch.empty((0,), dtype=torch.long)
+
+    with pytest.raises(ValueError, match="num_graphs and max_nodes"):
+        sparse_to_dense_nodes(values, batch, local_index)
+
+
+def test_sparse_to_dense_nodes_preserves_dtype():
+    values = torch.tensor([[1.0], [2.0]], dtype=torch.float64)
+    batch = torch.tensor([0, 1])
+    local_index = torch.tensor([0, 0])
+
+    dense = sparse_to_dense_nodes(values, batch, local_index)
+
+    assert dense.dtype == torch.float64
+
+
+def test_sparse_to_dense_nodes_validates_ranks():
+    values = torch.zeros((3, 2))
+    batch = torch.tensor([0, 0, 1])
+    local_index = torch.tensor([0, 1, 0])
+
+    with pytest.raises(ValueError, match="values with shape"):
+        sparse_to_dense_nodes(values.unsqueeze(0), batch, local_index)
+
+    with pytest.raises(ValueError, match="batch with shape"):
+        sparse_to_dense_nodes(values, batch.unsqueeze(-1), local_index)
+
+    with pytest.raises(ValueError, match="local_index with shape"):
+        sparse_to_dense_nodes(values, batch, local_index.unsqueeze(-1))
+
+
+def test_sparse_to_dense_nodes_validates_leading_dimensions():
+    values = torch.zeros((3, 2))
+    batch = torch.tensor([0, 0])
+    local_index = torch.tensor([0, 1, 0])
+
+    with pytest.raises(ValueError, match="Dimensional mismatch"):
+        sparse_to_dense_nodes(values, batch, local_index)

@@ -34,6 +34,7 @@ testpaths = ["tests"]
 markers = [
     "attention: invariant edge attention and segmented softmax tests",
     "attentive_egnn: attention-augmented EGNN layer tests",
+    "batching: dense/sparse batching adapter tests",
     "backbone: stacked EGNN backbone tests",
     "distance: pairwise distance layer tests",
     "equivariance: translation, rotation, and permutation symmetry tests",
