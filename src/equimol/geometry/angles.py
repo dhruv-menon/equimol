@@ -9,23 +9,21 @@ def bond_angle(
     c: torch.Tensor,
     eps: float = 1e-8,
 ) -> torch.Tensor:
-    """Return the angle ABC in radians.
-
+    """Return the angle ABC in radians
     Shapes:
-        a: [..., 3]
-        b: [..., 3]
-        c: [..., 3]
-        output: [...]
+        - a: [..., 3]
+        - b: [..., 3]
+        - c: [..., 3]
+        - output: [...]
 
     Operation:
-        Computes the angle between vectors a - b and c - b.
+        - Computes the angle between vectors a - b and c - b.
 
     Symmetry:
-        The output is invariant to global translation and rotation.
+        - The output is invariant to global translation and rotation.
 
     Complexity:
-        O(M), where M is the number of angle triplets.
-    """
+        - O(M), where M is the number of angle triplets"""
 
     if not (a.shape[-1] == b.shape[-1] == c.shape[-1] == 3):
         raise ValueError("The final coordinate dimension must be 3")
