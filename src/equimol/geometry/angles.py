@@ -30,9 +30,8 @@ def bond_angle(
 
     u = a - b
     v = c - b
-    u_norm = torch.linalg.norm(u, dim = -1)
-    v_norm = torch.linalg.norm(v, dim = -1)
-    dotproduct = (u * v).sum(dim = -1)
-    cos = dotproduct / (u_norm * v_norm + eps)
-    cos = cos.clamp(-1., 1.)
-    return torch.acos(cos)
+    cross = torch.linalg.cross(u, v, dim=-1)
+    cross_norm = torch.linalg.norm(cross, dim=-1).clamp_min(eps)
+    dot = (u * v).sum(dim=-1)
+
+    return torch.atan2(cross_norm, dot)
