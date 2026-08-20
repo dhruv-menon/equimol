@@ -32,6 +32,7 @@ packages = ["src/equimol"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 markers = [
+    "adapter: molecular/protein tensor adapter tests",
     "attention: invariant edge attention and segmented softmax tests",
     "attentive_egnn: attention-augmented EGNN layer tests",
     "batching: dense/sparse batching adapter tests",
