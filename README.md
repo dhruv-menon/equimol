@@ -96,6 +96,53 @@ Absolute coordinates should not be passed directly into scalar MLPs. Use relativ
 
 ## Modules
 
+### Adapters
+
+```python
+from equimol.adapters import MolecularGraphTensors
+from equimol.adapters import MoleculeAdapter
+from equimol.adapters import ProteinBackboneTensors
+from equimol.adapters import ProteinBackboneAdapter
+```
+
+Adapters define the boundary between user data and `equimol` tensors. They are
+normalizers, not neural network modules.
+
+For proteins, the canonical residue-major backbone contract is:
+
+```text
+coordinates:   [R, 4, 3]
+atom_mask:     [R, 4] or None
+residue_types: [R] or None
+residue_index: [R] or None
+batch:         [R] or None
+```
+
+The backbone atom order is:
+
+```text
+0: N
+1: CA
+2: C
+3: O
+```
+
+`ProteinBackboneAdapter.to_backbone_tensors(...)` should wrap and validate an
+already-loaded protein representation into `ProteinBackboneTensors`. It is not
+responsible for parsing PDB/mmCIF files, selecting chains, building graph edges,
+computing geometry, or running an EGNN backbone.
+
+The intended pipeline is:
+
+```text
+parser or user tensors
+-> adapter
+-> geometry/features
+-> graph construction
+-> layers/backbone
+-> task head
+```
+
 ### Layers
 
 ```python
@@ -128,6 +175,19 @@ from equimol.graphs import knn_graph
 Graph builders return sparse directed `edge_index` tensors with shape `[2, E]`.
 
 Dense fully connected graphs have O(N^2) edges. Radius, kNN, and future sequential/local graph builders are intended for sparse molecular and protein settings.
+
+### Geometry
+
+```python
+from equimol.geometry import bond_angle
+from equimol.geometry import dihedral_angle
+from equimol.geometry import distance
+from equimol.geometry import squared_distance
+```
+
+Geometry helpers operate on tensor coordinates and return invariant scalar
+quantities such as distances, bond angles, and torsions. They do not parse
+structure files or build graphs.
 
 ### Models
 
