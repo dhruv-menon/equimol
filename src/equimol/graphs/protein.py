@@ -6,6 +6,22 @@ from typing import Optional
 
 import torch
 
+from equimol.graphs.radius import radius_graph
+from equimol.graphs.sequential import sequential_edges
+
+
+def _validate_backbone_coordinates(coordinates: torch.Tensor) -> None:
+    if coordinates.ndim != 3:
+        raise ValueError(
+            f"Expected backbone coordinates with shape [R, 4, 3], "
+            f"got {tuple(coordinates.shape)}."
+        )
+    if coordinates.shape[1:] != (4, 3):
+        raise ValueError(
+            f"Expected backbone coordinates with shape [R, 4, 3], "
+            f"got {tuple(coordinates.shape)}."
+        )
+
 
 def backbone_atom_bond_graph(
     num_residues: int,
@@ -106,7 +122,14 @@ def residue_sequential_graph(
     Complexity:
         - O(R * window)
     """
-    raise NotImplementedError
+    return sequential_edges(
+        num_nodes=num_residues,
+        batch=batch,
+        window=window,
+        directed=directed,
+        loop=loop,
+        device=device,
+    )
 
 
 def ca_radius_graph(
@@ -129,4 +152,12 @@ def ca_radius_graph(
     Complexity:
         - Uses the current radius graph backend.
     """
-    raise NotImplementedError
+    _validate_backbone_coordinates(coordinates)
+
+    ca_coordinates = coordinates[:, 1, :]
+    return radius_graph(
+        ca_coordinates,
+        radius=radius,
+        batch=batch,
+        loop=loop,
+    )
