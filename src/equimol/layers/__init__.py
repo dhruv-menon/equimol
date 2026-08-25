@@ -8,6 +8,7 @@ from .egnn import EGNNLayer
 from .pooling import global_add_pool, global_mean_pool
 from .attentive_egnn import AttentiveEGNNLayer
 from .radial import GaussianRadialBasis
+from .time import SinusoidalTimeEmbedding, TimestepEmbedding
 
 __all__ = [
     "AttentiveEGNNLayer",
@@ -15,6 +16,8 @@ __all__ = [
     "GaussianRadialBasis",
     "InvariantEdgeAttention",
     "PairwiseDistance",
+    "SinusoidalTimeEmbedding",
+    "TimestepEmbedding",
     "global_add_pool",
     "global_mean_pool",
     "segment_sum",
