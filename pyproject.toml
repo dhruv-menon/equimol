@@ -39,6 +39,7 @@ markers = [
     "backbone: stacked EGNN backbone tests",
     "distance: pairwise distance layer tests",
     "equivariance: translation, rotation, and permutation symmetry tests",
+    "feature: molecular/protein feature construction tests",
     "geometry: geometric utility tests",
     "graph: graph construction tests",
     "pooling: graph-level pooling layer tests",
