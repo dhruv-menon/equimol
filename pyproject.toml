@@ -45,4 +45,5 @@ markers = [
     "pooling: graph-level pooling layer tests",
     "radial: radial distance expansion tests",
     "regressor: graph-level EGNN regressor tests",
+    "time: timestep embedding layer tests",
 ]
