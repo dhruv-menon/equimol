@@ -4,6 +4,7 @@ import pytest
 from equimol.diffusion import (
     DiffusionSchedule,
     center_coordinates,
+    coordinate_noise_mse,
     cosine_beta_schedule,
     linear_beta_schedule,
     q_sample_coordinates,
@@ -301,3 +302,65 @@ def test_q_sample_coordinates_validates_inputs():
 
     with pytest.raises(ValueError, match="outside"):
         q_sample_coordinates(x0, torch.tensor(3), schedule)
+
+
+def test_coordinate_noise_mse_returns_unmasked_node_mean():
+    eps_hat = torch.tensor([[1.0, 2.0, 3.0], [2.0, 2.0, 2.0]])
+    eps = torch.tensor([[0.0, 2.0, 1.0], [1.0, 0.0, 2.0]])
+
+    loss = coordinate_noise_mse(eps_hat, eps)
+
+    expected_per_node = torch.tensor([5.0, 5.0])
+    assert torch.allclose(loss, expected_per_node.mean())
+
+
+def test_coordinate_noise_mse_supports_node_mask():
+    eps_hat = torch.tensor([[1.0, 2.0], [4.0, 4.0], [2.0, 0.0]])
+    eps = torch.tensor([[0.0, 2.0], [0.0, 0.0], [1.0, 1.0]])
+    mask = torch.tensor([1.0, 0.0, 1.0])
+
+    loss = coordinate_noise_mse(eps_hat, eps, node_mask=mask)
+
+    expected = torch.tensor((1.0 + 2.0) / 2.0)
+    assert torch.allclose(loss, expected)
+
+
+def test_coordinate_noise_mse_supports_column_node_mask():
+    eps_hat = torch.tensor([[1.0, 1.0], [4.0, 4.0]])
+    eps = torch.zeros_like(eps_hat)
+    mask = torch.tensor([[1.0], [0.0]])
+
+    loss = coordinate_noise_mse(eps_hat, eps, node_mask=mask)
+
+    assert torch.allclose(loss, torch.tensor(2.0))
+
+
+def test_coordinate_noise_mse_preserves_gradients():
+    eps_hat = torch.tensor([[1.0, 2.0]], requires_grad=True)
+    eps = torch.zeros_like(eps_hat)
+
+    loss = coordinate_noise_mse(eps_hat, eps)
+    loss.backward()
+
+    assert eps_hat.grad is not None
+    assert torch.allclose(eps_hat.grad, torch.tensor([[2.0, 4.0]]))
+
+
+def test_coordinate_noise_mse_validates_inputs():
+    eps_hat = torch.randn(3, 2)
+    eps = torch.randn(3, 2)
+
+    with pytest.raises(ValueError, match="eps_hat"):
+        coordinate_noise_mse(torch.randn(3, 2, 1), eps)
+
+    with pytest.raises(ValueError, match="eps"):
+        coordinate_noise_mse(eps_hat, torch.randn(3, 3))
+
+    with pytest.raises(ValueError, match="node_mask"):
+        coordinate_noise_mse(eps_hat, eps, node_mask=torch.ones(2))
+
+    with pytest.raises(ValueError, match="valid node"):
+        coordinate_noise_mse(eps_hat, eps, node_mask=torch.zeros(3))
+
+    with pytest.raises(TypeError, match="floating point"):
+        coordinate_noise_mse(eps_hat.long(), eps)
