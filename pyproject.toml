@@ -37,6 +37,7 @@ markers = [
     "attentive_egnn: attention-augmented EGNN layer tests",
     "batching: dense/sparse batching adapter tests",
     "backbone: stacked EGNN backbone tests",
+    "data: dataset preprocessing and batch conversion tests",
     "distance: pairwise distance layer tests",
     "diffusion: diffusion schedules, corruption, and loss tests",
     "denoiser: coordinate denoising model tests",

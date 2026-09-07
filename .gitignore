@@ -8,8 +8,8 @@ env/
 venv/
 
 # Generated data and training artifacts
-data/
-checkpoints/
+/data/
+/checkpoints/
 
 # Large model/artifact files
 *.pt
