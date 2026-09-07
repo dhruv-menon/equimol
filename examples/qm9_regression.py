@@ -24,6 +24,13 @@ from equimol.data import (
 from equimol.models import EGNNRegressor
 from equimol.layers import GaussianRadialBasis
 
+
+def set_seed(seed: int) -> None:
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def shrink_indices(
     train_idx: torch.Tensor,
     val_idx: torch.Tensor,
@@ -155,6 +162,7 @@ def trainer(
         target_std: torch.Tensor,
         epochs: int,
         checkpoint_path: str,
+        metadata: dict | None = None,
         graph_type: str = "fully_connected",
         num_atom_types: int = 100,
         radius: float | None = None,
@@ -210,6 +218,7 @@ def trainer(
                         "best_val_mae": best_val_mae,
                         "target_mean": target_mean,
                         "target_std": target_std,
+                        "metadata": metadata or {},
                     },
                     checkpoint_path,
                 )
@@ -247,6 +256,7 @@ def main(argv=None):
     ap.add_argument("--batch-size", type=int, default=128)
     ap.add_argument("--num-atom-types", type=int, default=100)
     ap.add_argument("--lr", type = float, default = 3e-4)
+    ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=1)
     ap.add_argument("--checkpoint-path", type=str, default=None)
@@ -265,6 +275,7 @@ def main(argv=None):
     ap.add_argument("--egnn-pooling", choices=["sum", "mean"], default="mean")
     ap.add_argument("--egnn-eps", type=float, default=1e-8)
     args = ap.parse_args(argv)
+    set_seed(args.seed)
 
     # ----- Resolve device -----
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -341,9 +352,14 @@ def main(argv=None):
 
     optimizer = optim.AdamW(
         params = model.parameters(),
-        lr = args.lr)
+        lr = args.lr,
+        weight_decay=args.weight_decay)
 
     checkpoint_path = args.checkpoint_path or f"checkpoints/qm9/{args.target}.pt"
+    metadata = vars(args).copy()
+    metadata["checkpoint_path"] = checkpoint_path
+    metadata["target_idx"] = target_idx
+
     trainer(
         model=model,
         optimizer=optimizer,
@@ -357,6 +373,7 @@ def main(argv=None):
         target_std=target_std,
         epochs=args.epochs,
         checkpoint_path=checkpoint_path,
+        metadata=metadata,
         graph_type=args.graph,
         num_atom_types=args.num_atom_types,
         radius=args.radius,
