@@ -7,11 +7,23 @@ from equimol.diffusion import (
     coordinate_noise_mse,
     cosine_beta_schedule,
     linear_beta_schedule,
+    p_sample_coordinates_step,
     q_sample_coordinates,
+    sample_coordinates_loop,
     sample_coordinate_noise,
 )
 
 pytestmark = pytest.mark.diffusion
+
+
+class ZeroNoiseModel(torch.nn.Module):
+    def forward(self, h, x_t, t, edge_index, batch=None, edge_attr=None):
+        return torch.zeros_like(x_t)
+
+
+class BadNoiseModel(torch.nn.Module):
+    def forward(self, h, x_t, t, edge_index, batch=None, edge_attr=None):
+        return torch.zeros(x_t.shape[0], x_t.shape[1] + 1, device=x_t.device)
 
 
 def test_linear_beta_schedule_returns_expected_shapes_and_values():
@@ -364,3 +376,132 @@ def test_coordinate_noise_mse_validates_inputs():
 
     with pytest.raises(TypeError, match="floating point"):
         coordinate_noise_mse(eps_hat.long(), eps)
+
+
+def test_p_sample_coordinates_step_returns_deterministic_mean_at_t_zero():
+    model = ZeroNoiseModel()
+    schedule = DiffusionSchedule(
+        betas=torch.tensor([0.25, 0.5]),
+        alphas=torch.tensor([0.75, 0.5]),
+        alpha_bars=torch.tensor([0.75, 0.375]),
+    )
+    h = torch.randn(3, 4)
+    x_t = torch.randn(3, 3)
+    edge_index = torch.tensor([[0, 1], [1, 2]])
+
+    x_prev = p_sample_coordinates_step(
+        model,
+        h,
+        x_t,
+        torch.tensor(0),
+        schedule,
+        edge_index,
+        center=False,
+    )
+
+    assert torch.allclose(x_prev, x_t / torch.sqrt(torch.tensor(0.75)))
+
+
+def test_p_sample_coordinates_step_accepts_graph_wise_timesteps():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(4, 3)
+    x_t = torch.randn(4, 3)
+    edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]])
+    batch = torch.tensor([0, 0, 1, 1])
+
+    x_prev = p_sample_coordinates_step(
+        model,
+        h,
+        x_t,
+        torch.tensor([1, 2]),
+        schedule,
+        edge_index,
+        batch=batch,
+        center=False,
+    )
+
+    assert x_prev.shape == x_t.shape
+
+
+def test_p_sample_coordinates_step_can_center_output_per_graph():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(3)
+    h = torch.randn(4, 3)
+    x_t = torch.randn(4, 3)
+    edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]])
+    batch = torch.tensor([0, 0, 1, 1])
+
+    x_prev = p_sample_coordinates_step(
+        model,
+        h,
+        x_t,
+        torch.tensor(1),
+        schedule,
+        edge_index,
+        batch=batch,
+        center=True,
+    )
+
+    assert torch.allclose(x_prev[batch == 0].mean(dim=0), torch.zeros(3), atol=1e-6)
+    assert torch.allclose(x_prev[batch == 1].mean(dim=0), torch.zeros(3), atol=1e-6)
+
+
+def test_p_sample_coordinates_step_validates_inputs():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(3)
+    h = torch.randn(3, 2)
+    x_t = torch.randn(3, 3)
+    edge_index = torch.tensor([[0, 1], [1, 2]])
+
+    with pytest.raises(ValueError, match="x_t"):
+        p_sample_coordinates_step(model, h, torch.randn(2, 3), torch.tensor(0), schedule, edge_index)
+
+    with pytest.raises(ValueError, match="outside"):
+        p_sample_coordinates_step(model, h, x_t, torch.tensor(3), schedule, edge_index)
+
+    with pytest.raises(ValueError, match="model output"):
+        p_sample_coordinates_step(BadNoiseModel(), h, x_t, torch.tensor(0), schedule, edge_index)
+
+    with pytest.raises(TypeError, match="edge_index"):
+        p_sample_coordinates_step(model, h, x_t, torch.tensor(0), schedule, edge_index.float())
+
+    with pytest.raises(ValueError, match="graph-wise timesteps require batch"):
+        p_sample_coordinates_step(model, h, x_t, torch.tensor([0, 1]), schedule, edge_index)
+
+
+def test_sample_coordinates_loop_returns_coordinates():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(5, 3)
+    edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
+
+    x = sample_coordinates_loop(model, h, edge_index, schedule)
+
+    assert x.shape == (5, 3)
+
+
+def test_sample_coordinates_loop_can_center_initial_and_final_coordinates():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(5, 3)
+    edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
+    batch = torch.tensor([0, 0, 1, 1, 1])
+
+    x = sample_coordinates_loop(model, h, edge_index, schedule, batch=batch, center=True)
+
+    assert torch.allclose(x[batch == 0].mean(dim=0), torch.zeros(3), atol=1e-6)
+    assert torch.allclose(x[batch == 1].mean(dim=0), torch.zeros(3), atol=1e-6)
+
+
+def test_sample_coordinates_loop_validates_inputs():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(3)
+    h = torch.randn(3, 2)
+    edge_index = torch.tensor([[0, 1], [1, 2]])
+
+    with pytest.raises(ValueError, match="coord_dim"):
+        sample_coordinates_loop(model, h, edge_index, schedule, coord_dim=0)
+
+    with pytest.raises(TypeError, match="edge_index"):
+        sample_coordinates_loop(model, h, edge_index.float(), schedule)
