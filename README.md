@@ -14,6 +14,21 @@ Development install:
 uv sync --group dev
 ```
 
+Windows CUDA install for local training:
+
+```powershell
+uv sync --group dev
+uv pip install --force-reinstall --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu128
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.version.cuda)"
+```
+
+If `uv run` reinstalls CPU PyTorch from `uv.lock`, run training with the venv
+Python directly:
+
+```powershell
+.\.venv\Scripts\python.exe examples/qm9_regression.py --datapath data/qm9 --target mu --epochs 100 --batch-size 128 --eval-every 5 --checkpoint-path checkpoints/qm9/mu_full.pt
+```
+
 Run tests:
 
 ```bash
