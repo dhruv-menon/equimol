@@ -12,4 +12,5 @@ class GeometricBatch:
     batch: torch.Tensor
     edge_attr: torch.Tensor | None = None
     y: torch.Tensor | None = None
+    force: torch.Tensor | None = None
     mask: torch.Tensor | None = None
