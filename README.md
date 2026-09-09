@@ -35,6 +35,21 @@ uv run python examples/qm9_regression.py \
   --eval-every 1
 ```
 
+MD17 energy regression smoke run:
+
+```bash
+uv run python examples/md17_regression.py \
+  --datapath data/md17 \
+  --molecule aspirin \
+  --fast-dev-run \
+  --fast-train-size 64 \
+  --fast-val-size 32 \
+  --fast-test-size 32 \
+  --batch-size 16 \
+  --epochs 1 \
+  --eval-every 1
+```
+
 ## Quickstart
 
 ```python
