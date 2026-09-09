@@ -176,6 +176,7 @@ def trainer(
     checkpoint_path = Path(checkpoint_path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
     best_val_mae = float("inf")
+    history = []
 
     for epoch_idx in range(1, epochs + 1):
         loss = train_epoch(
@@ -207,6 +208,13 @@ def trainer(
                 k=k,
             )
             print(f"epoch={epoch_idx:03d} train_loss={loss:.6g} val_mae={val_mae:.6g}")
+            history.append(
+                {
+                    "epoch": epoch_idx,
+                    "train_loss": loss,
+                    "val_mae": val_mae,
+                }
+            )
 
             if val_mae < best_val_mae:
                 best_val_mae = val_mae
@@ -218,6 +226,8 @@ def trainer(
                         "best_val_mae": best_val_mae,
                         "target_mean": target_mean,
                         "target_std": target_std,
+                        "history": history,
+                        "test_mae": None,
                         "metadata": metadata or {},
                     },
                     checkpoint_path,
@@ -238,6 +248,10 @@ def trainer(
         radius=radius,
         k=k,
     )
+    checkpoint["history"] = history
+    checkpoint["test_mae"] = test_mae
+    checkpoint["best_val_mae"] = best_val_mae
+    torch.save(checkpoint, checkpoint_path)
     print(f"best_val_mae={best_val_mae:.6g} test_mae={test_mae:.6g}")
     return best_val_mae, test_mae
 
