@@ -45,6 +45,23 @@ def shrink_indices(
         test_idx[:test_size],
     )
 
+def calculate_force(
+    energy: torch.Tensor,
+    x: torch.Tensor,
+    *,
+    create_graph: bool,
+) -> torch.Tensor:
+    return -torch.autograd.grad(
+        energy.sum(),
+        x,
+        create_graph=create_graph,
+    )[0]
+
+
+def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    return nn.MSELoss()(pred, target)
+
+
 def train_epoch(
         model: EGNNRegressor,
         optimizer: torch.optim.Optimizer,
@@ -57,6 +74,8 @@ def train_epoch(
         num_atom_types: int = 100,
         radius: float | None = 5.0,
         k: int | None = None,
+        lambda_energy: float = 1.0,
+        lambda_force: float = 1.0,
         ) -> float:
 
     epoch_loss = 0.
@@ -79,15 +98,22 @@ def train_epoch(
 
         # ----- Forward pass ------
         h = geometric_batch.h
-        x = geometric_batch.x
+        x = geometric_batch.x.detach().requires_grad_(True)
         edge_index = geometric_batch.edge_index
         graph_batch = geometric_batch.batch
         edge_attr = geometric_batch.edge_attr
-        y = geometric_batch.y
+        target_energy = geometric_batch.y
+        target_force = geometric_batch.force
+
         pred = model(h, x, edge_index, graph_batch, edge_attr)
+        pred_energy = pred * energy_std.to(device) + energy_mean.to(device)
+        pred_force = calculate_force(pred_energy, x, create_graph=True)
+
         # ------ MSE Loss ------
-        target_norm = (y - energy_mean.to(device)) / energy_std.to(device)
-        loss = nn.MSELoss()(pred, target_norm)
+        target_norm = (target_energy - energy_mean.to(device)) / energy_std.to(device)
+        energy_loss = mse_loss(pred, target_norm)
+        force_loss = mse_loss(pred_force, target_force)
+        loss = lambda_energy * energy_loss + lambda_force * force_loss
         loss.backward()
         optimizer.step()
 
@@ -162,6 +188,8 @@ def trainer(
         radius: float | None = 5.0,
         k: int | None = None,
         eval_every: int = 20,
+        lambda_energy: float = 1.0,
+        lambda_force: float = 1.0,
         ):
 
     if eval_every <= 0:
@@ -184,7 +212,9 @@ def trainer(
             graph_type = graph_type, 
             num_atom_types = num_atom_types,
             radius = radius,
-            k = k)
+            k = k,
+            lambda_energy=lambda_energy,
+            lambda_force=lambda_force)
 
         if epoch_idx % eval_every == 0 or epoch_idx == epochs:
             val_mae = evaluate(
@@ -262,6 +292,8 @@ def main(argv=None):
     ap.add_argument("--num-atom-types", type=int, default=100)
     ap.add_argument("--lr", type = float, default = 3e-4)
     ap.add_argument("--weight-decay", type=float, default=0.01)
+    ap.add_argument("--lambda-energy", type=float, default=1.0)
+    ap.add_argument("--lambda-force", type=float, default=1.0)
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=1)
     ap.add_argument("--checkpoint-path", type=str, default=None)
@@ -382,6 +414,8 @@ def main(argv=None):
         radius=args.radius,
         k=args.k,
         eval_every=args.eval_every,
+        lambda_energy=args.lambda_energy,
+        lambda_force=args.lambda_force,
     )
 
 
