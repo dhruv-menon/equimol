@@ -125,7 +125,6 @@ def train_epoch(
         raise ValueError("train loader is empty")
     return epoch_loss / batch_count
 
-@torch.no_grad()
 def evaluate(
     model: EGNNRegressor,
     loader: DataLoader,
@@ -137,10 +136,12 @@ def evaluate(
     num_atom_types: int = 100,
     radius: float | None = 5.0,
     k: int | None = None,
-) -> float:
+) -> dict[str, float]:
     model.eval()
-    total_abs_error = 0.0
+    total_energy_abs_error = 0.0
+    total_force_abs_error = 0.0
     total_graphs = 0
+    total_force_values = 0
 
     for batch in tqdm(loader, desc="eval", leave=False):
         batch = batch.to(device)
@@ -153,21 +154,32 @@ def evaluate(
             k=k,
         )
 
+        x = geometric_batch.x.detach().requires_grad_(True)
         pred_norm = model(
             geometric_batch.h,
-            geometric_batch.x,
+            x,
             geometric_batch.edge_index,
             geometric_batch.batch,
             geometric_batch.edge_attr,
         )
-        y = geometric_batch.y
-        pred = pred_norm * energy_std.to(device) + energy_mean.to(device)
-        total_abs_error += (pred - y).abs().sum().item()
-        total_graphs += y.numel()
+        target_energy = geometric_batch.y
+        target_force = geometric_batch.force
+        pred_energy = pred_norm * energy_std.to(device) + energy_mean.to(device)
+        pred_force = calculate_force(pred_energy, x, create_graph=False)
+
+        total_energy_abs_error += (pred_energy - target_energy).abs().sum().item()
+        total_force_abs_error += (pred_force - target_force).abs().sum().item()
+        total_graphs += target_energy.numel()
+        total_force_values += target_force.numel()
 
     if total_graphs == 0:
         raise ValueError("evaluation loader is empty")
-    return total_abs_error / total_graphs
+    if total_force_values == 0:
+        raise ValueError("evaluation force target is empty")
+    return {
+        "energy_mae": total_energy_abs_error / total_graphs,
+        "force_mae": total_force_abs_error / total_force_values,
+    }
 	    
 
 def trainer(
@@ -217,7 +229,7 @@ def trainer(
             lambda_force=lambda_force)
 
         if epoch_idx % eval_every == 0 or epoch_idx == epochs:
-            val_mae = evaluate(
+            val_metrics = evaluate(
                 model=model,
                 loader=val_loader,
                 radial_basis=radial_basis,
@@ -229,17 +241,23 @@ def trainer(
                 radius=radius,
                 k=k,
             )
-            print(f"epoch={epoch_idx:03d} train_loss={loss:.6g} val_mae={val_mae:.6g}")
+            val_energy_mae = val_metrics["energy_mae"]
+            val_force_mae = val_metrics["force_mae"]
+            print(
+                f"epoch={epoch_idx:03d} train_loss={loss:.6g} "
+                f"val_energy_mae={val_energy_mae:.6g} val_force_mae={val_force_mae:.6g}"
+            )
             history.append(
                 {
                     "epoch": epoch_idx,
                     "train_loss": loss,
-                    "val_mae": val_mae,
+                    "val_energy_mae": val_energy_mae,
+                    "val_force_mae": val_force_mae,
                 }
             )
 
-            if val_mae < best_val_mae:
-                best_val_mae = val_mae
+            if val_energy_mae < best_val_mae:
+                best_val_mae = val_energy_mae
                 torch.save(
                     {
                         "model": model.state_dict(),
@@ -249,7 +267,8 @@ def trainer(
                         "energy_mean": energy_mean,
                         "energy_std": energy_std,
                         "history": history,
-                        "test_mae": None,
+                        "test_energy_mae": None,
+                        "test_force_mae": None,
                         "metadata": metadata or {},
                     },
                     checkpoint_path,
@@ -257,7 +276,7 @@ def trainer(
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model"])
-    test_mae = evaluate(
+    test_metrics = evaluate(
         model=model,
         loader=test_loader,
         radial_basis=radial_basis,
@@ -269,12 +288,18 @@ def trainer(
         radius=radius,
         k=k,
     )
+    test_energy_mae = test_metrics["energy_mae"]
+    test_force_mae = test_metrics["force_mae"]
     checkpoint["history"] = history
-    checkpoint["test_mae"] = test_mae
+    checkpoint["test_energy_mae"] = test_energy_mae
+    checkpoint["test_force_mae"] = test_force_mae
     checkpoint["best_val_mae"] = best_val_mae
     torch.save(checkpoint, checkpoint_path)
-    print(f"best_val_mae={best_val_mae:.6g} test_mae={test_mae:.6g}")
-    return best_val_mae, test_mae
+    print(
+        f"best_val_energy_mae={best_val_mae:.6g} "
+        f"test_energy_mae={test_energy_mae:.6g} test_force_mae={test_force_mae:.6g}"
+    )
+    return best_val_mae, test_energy_mae, test_force_mae
 
 
 def main(argv=None):

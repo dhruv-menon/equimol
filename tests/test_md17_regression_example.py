@@ -62,7 +62,7 @@ def test_md17_energy_training_functions_run_on_fake_batch():
         graph_type="fully_connected",
         num_atom_types=10,
     )
-    mae = md17_regression.evaluate(
+    metrics = md17_regression.evaluate(
         model=model,
         loader=loader,
         radial_basis=radial_basis,
@@ -74,6 +74,8 @@ def test_md17_energy_training_functions_run_on_fake_batch():
     )
 
     assert isinstance(loss, float)
-    assert isinstance(mae, float)
+    assert isinstance(metrics["energy_mae"], float)
+    assert isinstance(metrics["force_mae"], float)
     assert loss >= 0.0
-    assert mae >= 0.0
+    assert metrics["energy_mae"] >= 0.0
+    assert metrics["force_mae"] >= 0.0
