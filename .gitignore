@@ -10,6 +10,7 @@ venv/
 # Generated data and training artifacts
 /data/
 /checkpoints/
+/figures/
 /helpers/plotters.py
 
 # Large model/artifact files
