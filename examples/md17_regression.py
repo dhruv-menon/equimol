@@ -62,6 +62,10 @@ def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return nn.MSELoss()(pred, target)
 
 
+def l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    return nn.L1Loss()(pred, target)
+
+
 def train_epoch(
         model: EGNNRegressor,
         optimizer: torch.optim.Optimizer,
@@ -76,6 +80,7 @@ def train_epoch(
         k: int | None = None,
         lambda_energy: float = 1.0,
         lambda_force: float = 1.0,
+        grad_clip: float | None = 1.0,
         ) -> float:
 
     epoch_loss = 0.
@@ -109,12 +114,13 @@ def train_epoch(
         pred_energy = pred * energy_std.to(device) + energy_mean.to(device)
         pred_force = calculate_force(pred_energy, x, create_graph=True)
 
-        # ------ MSE Loss ------
         target_norm = (target_energy - energy_mean.to(device)) / energy_std.to(device)
         energy_loss = mse_loss(pred, target_norm)
-        force_loss = mse_loss(pred_force, target_force)
+        force_loss = l1_loss(pred_force, target_force)
         loss = lambda_energy * energy_loss + lambda_force * force_loss
         loss.backward()
+        if grad_clip is not None and grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
 
         epoch_loss = epoch_loss + loss.detach().item()
@@ -202,6 +208,7 @@ def trainer(
         eval_every: int = 20,
         lambda_energy: float = 1.0,
         lambda_force: float = 1.0,
+        grad_clip: float | None = 1.0,
         ):
 
     if eval_every <= 0:
@@ -226,7 +233,8 @@ def trainer(
             radius = radius,
             k = k,
             lambda_energy=lambda_energy,
-            lambda_force=lambda_force)
+            lambda_force=lambda_force,
+            grad_clip=grad_clip)
 
         if epoch_idx % eval_every == 0 or epoch_idx == epochs:
             val_metrics = evaluate(
@@ -319,6 +327,7 @@ def main(argv=None):
     ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument("--lambda-energy", type=float, default=1.0)
     ap.add_argument("--lambda-force", type=float, default=1.0)
+    ap.add_argument("--grad-clip", type=float, default=1.0)
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=1)
     ap.add_argument("--checkpoint-path", type=str, default=None)
@@ -441,6 +450,7 @@ def main(argv=None):
         eval_every=args.eval_every,
         lambda_energy=args.lambda_energy,
         lambda_force=args.lambda_force,
+        grad_clip=args.grad_clip,
     )
 
 
