@@ -6,6 +6,8 @@ from equimol.geometry import backbone_bond_lengths
 from equimol.geometry import backbone_geometry
 from equimol.geometry import backbone_torsions
 from equimol.geometry import bond_angle
+from equimol.geometry import bond_angle_features_from_index
+from equimol.geometry import bond_angles_from_index
 from equimol.geometry import dihedral_angle
 from equimol.geometry import dihedral_angles_from_index
 from equimol.geometry import dihedral_features_from_index
@@ -123,6 +125,45 @@ def test_bond_angle_validates_coordinate_dimension():
 
     with pytest.raises(ValueError, match="coordinate dimension"):
         bond_angle(a, b, c)
+
+
+def test_bond_angles_from_index_matches_direct_bond_angle():
+    coordinates = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        ]
+    )
+    angle_index = torch.tensor([[0, 0], [1, 1], [2, 3]])
+
+    angles = bond_angles_from_index(coordinates, angle_index)
+    expected = bond_angle(
+        coordinates[angle_index[0]],
+        coordinates[angle_index[1]],
+        coordinates[angle_index[2]],
+    )
+
+    assert angles.shape == torch.Size([2])
+    assert torch.allclose(angles, expected, atol=1e-5)
+
+
+def test_bond_angle_features_from_index_returns_cosine_features():
+    coordinates = torch.tensor(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        ]
+    )
+    angle_index = torch.tensor([[0, 0], [1, 1], [2, 3]])
+
+    features = bond_angle_features_from_index(coordinates, angle_index)
+
+    assert features.shape == torch.Size([2, 1])
+    assert torch.allclose(features.squeeze(-1), torch.tensor([0.0, -1.0]), atol=1e-5)
 
 
 def test_backbone_bond_lengths_return_expected_shapes_and_values():
