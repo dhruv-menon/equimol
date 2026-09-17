@@ -5,6 +5,7 @@ from equimol.adapters import MoleculeAdapter
 from equimol.adapters import ProteinBackboneAdapter
 from equimol.features import molecule_atom_features
 from equimol.features import molecule_edge_features
+from equimol.features import molecule_geometry_features
 from equimol.features import protein_atom_features
 from equimol.features import protein_edge_features
 from equimol.features import protein_residue_features
@@ -99,6 +100,41 @@ def test_molecule_edge_features_validate_edge_attr_length():
 
     with pytest.raises(ValueError, match="edge_attr"):
         molecule_edge_features(coordinates, edge_index, edge_attr=torch.randn(2, 4))
+
+
+def test_molecule_geometry_features_return_bond_angle_torsion_features():
+    coordinates = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [2.0, 1.0, 1.0],
+        ]
+    )
+    bond_index = torch.tensor([[0, 1], [1, 2]])
+    angle_index = torch.tensor([[0, 1], [1, 2], [2, 3]])
+    torsion_index = torch.tensor([[0, 1], [1, 2], [2, 3], [3, 4]])
+
+    features = molecule_geometry_features(
+        coordinates,
+        bond_index=bond_index,
+        angle_index=angle_index,
+        torsion_index=torsion_index,
+    )
+
+    assert torch.equal(features.bond_index, bond_index)
+    assert torch.equal(features.angle_index, angle_index)
+    assert torch.equal(features.torsion_index, torsion_index)
+    assert features.bond_lengths.shape == torch.Size([2, 1])
+    assert torch.allclose(features.bond_lengths, torch.ones(2, 1), atol=1e-5)
+    assert features.angle_features.shape == torch.Size([2, 1])
+    assert features.torsion_features.shape == torch.Size([2, 2])
+    assert torch.allclose(
+        torch.linalg.norm(features.torsion_features, dim=-1),
+        torch.ones(2),
+        atol=1e-5,
+    )
 
 
 def test_protein_residue_features_use_residue_types_and_mask():

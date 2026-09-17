@@ -6,7 +6,11 @@ from typing import Optional
 import torch
 
 from equimol.adapters import MolecularGraphTensors
-from equimol.geometry import distance
+from equimol.geometry import (
+    bond_angle_features_from_index,
+    dihedral_features_from_index,
+    distance,
+)
 
 @dataclass(frozen=True)
 class MolecularNodeFeatures:
@@ -36,6 +40,37 @@ class MolecularEdgeFeatures:
 
     edge_attr: torch.Tensor | None = None
     edge_distance: torch.Tensor | None = None
+
+
+@dataclass(frozen=True)
+class MolecularGeometryFeatures:
+    """Molecular bonded-geometry feature contract.
+
+    Shapes:
+        - bond_index: [2, B] or None
+        - angle_index: [3, A] or None
+        - torsion_index: [4, T] or None
+        - bond_lengths: [B, 1] or None
+        - angle_features: [A, 1] or None
+        - torsion_features: [T, 2] or None
+
+    Feature convention:
+        - bond length: ||x_i - x_j||
+        - angle: cos(theta_ijk)
+        - torsion: [sin(phi_ijkl), cos(phi_ijkl)]
+
+    Notes:
+        - Index construction belongs outside the calculators.
+        - For molecules, build indices from covalent topology.
+        - For proteins, reuse the same geometry logic with backbone topology.
+    """
+
+    bond_index: torch.Tensor | None = None
+    angle_index: torch.Tensor | None = None
+    torsion_index: torch.Tensor | None = None
+    bond_lengths: torch.Tensor | None = None
+    angle_features: torch.Tensor | None = None
+    torsion_features: torch.Tensor | None = None
 
 
 def molecule_atom_features(molecule: MolecularGraphTensors) -> MolecularNodeFeatures:
@@ -130,4 +165,65 @@ def molecule_edge_features(
     return MolecularEdgeFeatures(
         edge_attr=edge_attr,
         edge_distance=edge_distance,
+    )
+
+
+def molecule_geometry_features(
+    coordinates: torch.Tensor,
+    *,
+    bond_index: torch.Tensor | None = None,
+    angle_index: torch.Tensor | None = None,
+    torsion_index: torch.Tensor | None = None,
+    eps: float = 1e-8,
+) -> MolecularGeometryFeatures:
+    """Build bond length, angle, and torsion features from molecular topology."""
+    if coordinates.ndim != 2 or coordinates.shape[-1] != 3:
+        raise ValueError(
+            f"Expected coordinates with shape [N, 3], got {tuple(coordinates.shape)}."
+        )
+
+    device = coordinates.device
+    num_nodes = coordinates.shape[0]
+
+    def as_index(index: torch.Tensor | None, width: int, name: str) -> torch.Tensor | None:
+        if index is None:
+            return None
+        index = torch.as_tensor(index, dtype=torch.long, device=device)
+        if index.ndim != 2 or index.shape[0] != width:
+            raise ValueError(f"Expected {name} with shape [{width}, T], got {tuple(index.shape)}.")
+        if index.numel() == 0:
+            return index
+        if index.min() < 0:
+            raise ValueError(f"{name} cannot contain negative node indices.")
+        if index.max() >= num_nodes:
+            raise ValueError(
+                f"{name} contains node index {int(index.max())}, "
+                f"but coordinates has {num_nodes} nodes."
+            )
+        return index
+
+    bond_index = as_index(bond_index, 2, "bond_index")
+    angle_index = as_index(angle_index, 3, "angle_index")
+    torsion_index = as_index(torsion_index, 4, "torsion_index")
+
+    bond_lengths = None
+    if bond_index is not None:
+        src, dst = bond_index
+        bond_lengths = distance(coordinates[src], coordinates[dst], eps=eps).unsqueeze(-1)
+
+    angle_features = None
+    if angle_index is not None:
+        angle_features = bond_angle_features_from_index(coordinates, angle_index, eps=eps)
+
+    torsion_features = None
+    if torsion_index is not None:
+        torsion_features = dihedral_features_from_index(coordinates, torsion_index, eps=eps)
+
+    return MolecularGeometryFeatures(
+        bond_index=bond_index,
+        angle_index=angle_index,
+        torsion_index=torsion_index,
+        bond_lengths=bond_lengths,
+        angle_features=angle_features,
+        torsion_features=torsion_features,
     )
