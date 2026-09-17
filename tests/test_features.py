@@ -3,8 +3,13 @@ import torch
 
 from equimol.adapters import MoleculeAdapter
 from equimol.adapters import ProteinBackboneAdapter
+from equimol.features import MolecularEdgeGeometryConfig
+from equimol.features import edge_angle_summary_features
+from equimol.features import edge_bond_features
+from equimol.features import edge_torsion_summary_features
 from equimol.features import molecule_atom_features
 from equimol.features import molecule_edge_features
+from equimol.features import molecular_edge_geometry_features
 from equimol.features import molecule_geometry_features
 from equimol.features import protein_atom_features
 from equimol.features import protein_edge_features
@@ -135,6 +140,58 @@ def test_molecule_geometry_features_return_bond_angle_torsion_features():
         torch.ones(2),
         atol=1e-5,
     )
+
+
+def test_edge_bond_features_map_bonds_to_edges():
+    edge_index = torch.tensor([[0, 1, 0, 2], [1, 0, 2, 0]])
+    bond_index = torch.tensor([[0], [1]])
+    bond_lengths = torch.tensor([[1.5]])
+
+    features = edge_bond_features(edge_index, bond_index, bond_lengths)
+
+    expected = torch.tensor(
+        [
+            [1.0, 1.5],
+            [1.0, 1.5],
+            [0.0, 0.0],
+            [0.0, 0.0],
+        ]
+    )
+    assert torch.allclose(features, expected)
+
+
+def test_edge_angle_and_torsion_summary_features_map_to_edges():
+    edge_index = torch.tensor([[0, 2, 1, 2], [2, 0, 2, 1]])
+    angle_index = torch.tensor([[0], [1], [2]])
+    angle_features = torch.tensor([[0.25]])
+    torsion_index = torch.tensor([[0], [1], [2], [3]])
+    torsion_features = torch.tensor([[0.5, 0.75]])
+
+    angle_out = edge_angle_summary_features(edge_index, angle_index, angle_features)
+    torsion_out = edge_torsion_summary_features(edge_index, torsion_index, torsion_features)
+
+    assert torch.allclose(angle_out, torch.tensor([[0.25], [0.25], [0.0], [0.0]]))
+    assert torch.allclose(
+        torsion_out,
+        torch.tensor([[0.0, 0.0], [0.0, 0.0], [0.5, 0.75], [0.5, 0.75]]),
+    )
+
+
+def test_molecular_edge_geometry_features_concatenates_selected_features():
+    edge_index = torch.tensor([[0, 1, 0, 2], [1, 0, 2, 0]])
+    bond_index = torch.tensor([[0], [1]])
+    bond_lengths = torch.tensor([[1.5]])
+
+    empty = molecular_edge_geometry_features(edge_index)
+    features = molecular_edge_geometry_features(
+        edge_index,
+        bond_index=bond_index,
+        bond_lengths=bond_lengths,
+        config=MolecularEdgeGeometryConfig(use_bond_features=True),
+    )
+
+    assert empty.shape == torch.Size([4, 0])
+    assert features.shape == torch.Size([4, 2])
 
 
 def test_protein_residue_features_use_residue_types_and_mask():
