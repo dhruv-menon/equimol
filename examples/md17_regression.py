@@ -346,6 +346,8 @@ def main(argv=None):
     ap.add_argument("--fast-val-size", type=int, default=200)
     ap.add_argument("--fast-test-size", type=int, default=200)
     ap.add_argument("--batch-size", type=int, default=128)
+    ap.add_argument("--num-workers", type=int, default=0)
+    ap.add_argument("--pin-memory", action="store_true")
     ap.add_argument("--num-atom-types", type=int, default=100)
     ap.add_argument("--lr", type = float, default = 3e-4)
     ap.add_argument("--weight-decay", type=float, default=0.01)
@@ -411,20 +413,28 @@ def main(argv=None):
     )
 
     # ----- DataLoaders -----
+    loader_kwargs = {
+        "num_workers": args.num_workers,
+        "pin_memory": args.pin_memory and device.type == "cuda",
+        "persistent_workers": args.num_workers > 0,
+    }
     train_loader = DataLoader(
         dataset[train_idx.tolist()],
         batch_size=args.batch_size,
         shuffle=True,
+        **loader_kwargs,
     )
     val_loader = DataLoader(
         dataset[val_idx.tolist()],
         batch_size=args.batch_size,
         shuffle=False,
+        **loader_kwargs,
     )
     test_loader = DataLoader(
         dataset[test_idx.tolist()],
         batch_size=args.batch_size,
         shuffle=False,
+        **loader_kwargs,
     )
 
     edge_featurizer = build_radial_basis(
