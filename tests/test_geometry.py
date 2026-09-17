@@ -6,6 +6,9 @@ from equimol.geometry import backbone_bond_lengths
 from equimol.geometry import backbone_geometry
 from equimol.geometry import backbone_torsions
 from equimol.geometry import bond_angle
+from equimol.geometry import dihedral_angle
+from equimol.geometry import dihedral_angles_from_index
+from equimol.geometry import dihedral_features_from_index
 from equimol.utils import random_rotation, rotate, squared_distances, translate
 from equimol.graphs import fully_connected_edges
 
@@ -184,6 +187,40 @@ def test_backbone_torsions_return_sin_cos_pairs():
     assert torsions["omega"].shape == torch.Size([4, 2])
     for value in torsions.values():
         assert torch.allclose(torch.linalg.norm(value, dim=-1), torch.ones(4), atol=1e-5)
+
+
+def test_dihedral_angles_from_index_matches_direct_dihedral():
+    coordinates = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 1.0],
+            [2.0, 1.0, 1.0],
+        ]
+    )
+    torsion_index = torch.tensor([[0, 1], [1, 2], [2, 3], [3, 4]])
+
+    angles = dihedral_angles_from_index(coordinates, torsion_index)
+    expected = dihedral_angle(
+        coordinates[torsion_index[0]],
+        coordinates[torsion_index[1]],
+        coordinates[torsion_index[2]],
+        coordinates[torsion_index[3]],
+    )
+
+    assert angles.shape == torch.Size([2])
+    assert torch.allclose(angles, expected, atol=1e-5)
+
+
+def test_dihedral_features_from_index_returns_sin_cos_pairs():
+    coordinates = torch.randn(5, 3)
+    torsion_index = torch.tensor([[0, 1], [1, 2], [2, 3], [3, 4]])
+
+    features = dihedral_features_from_index(coordinates, torsion_index)
+
+    assert features.shape == torch.Size([2, 2])
+    assert torch.allclose(torch.linalg.norm(features, dim=-1), torch.ones(2), atol=1e-5)
 
 
 def test_backbone_geometry_returns_expected_groups():
