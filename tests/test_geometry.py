@@ -8,9 +8,12 @@ from equimol.geometry import backbone_torsions
 from equimol.geometry import bond_angle
 from equimol.geometry import bond_angle_features_from_index
 from equimol.geometry import bond_angles_from_index
+from equimol.geometry import covalent_radii
 from equimol.geometry import dihedral_angle
 from equimol.geometry import dihedral_angles_from_index
 from equimol.geometry import dihedral_features_from_index
+from equimol.geometry import infer_covalent_bonds
+from equimol.geometry import molecular_topology_from_geometry
 from equimol.utils import random_rotation, rotate, squared_distances, translate
 from equimol.graphs import fully_connected_edges
 
@@ -125,6 +128,58 @@ def test_bond_angle_validates_coordinate_dimension():
 
     with pytest.raises(ValueError, match="coordinate dimension"):
         bond_angle(a, b, c)
+
+
+def test_covalent_radii_returns_float_radii_and_rejects_unknown_atoms():
+    radii = covalent_radii(torch.tensor([1, 6, 8]))
+
+    assert radii.dtype == torch.float32
+    assert torch.allclose(radii, torch.tensor([0.31, 0.76, 0.66]))
+
+    with pytest.raises(ValueError, match="unsupported"):
+        covalent_radii(torch.tensor([2]))
+
+
+def test_infer_covalent_bonds_finds_directed_and_undirected_bonds():
+    z = torch.tensor([8, 1, 1])
+    coordinates = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [0.96, 0.0, 0.0],
+            [-0.24, 0.93, 0.0],
+        ]
+    )
+
+    directed = infer_covalent_bonds(z, coordinates, directed=True)
+    undirected = infer_covalent_bonds(z, coordinates, directed=False)
+
+    assert directed.shape == torch.Size([2, 4])
+    assert undirected.shape == torch.Size([2, 2])
+    assert {tuple(edge) for edge in directed.T.tolist()} == {
+        (0, 1),
+        (1, 0),
+        (0, 2),
+        (2, 0),
+    }
+    assert {tuple(edge) for edge in undirected.T.tolist()} == {(0, 1), (0, 2)}
+
+
+def test_molecular_topology_from_geometry_builds_angle_and_torsion_indices():
+    z = torch.tensor([6, 6, 6, 6])
+    coordinates = torch.tensor(
+        [
+            [0.0, 0.0, 0.0],
+            [1.4, 0.0, 0.0],
+            [2.8, 0.0, 0.0],
+            [4.2, 0.0, 0.0],
+        ]
+    )
+
+    topology = molecular_topology_from_geometry(z, coordinates)
+
+    assert topology.bond_index.shape == torch.Size([2, 6])
+    assert topology.angle_index.shape[0] == 3
+    assert topology.torsion_index.shape[0] == 4
 
 
 def test_bond_angles_from_index_matches_direct_bond_angle():
