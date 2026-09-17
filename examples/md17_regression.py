@@ -81,6 +81,9 @@ def train_epoch(
         lambda_energy: float = 1.0,
         lambda_force: float = 1.0,
         grad_clip: float | None = 1.0,
+        use_bond_features: bool = False,
+        use_angle_features: bool = False,
+        use_torsion_features: bool = False,
         ) -> float:
 
     epoch_loss = 0.
@@ -99,6 +102,9 @@ def train_epoch(
             num_atom_types = num_atom_types,
             radius = radius,
             k = k,
+            use_bond_features=use_bond_features,
+            use_angle_features=use_angle_features,
+            use_torsion_features=use_torsion_features,
             )
 
         # ----- Forward pass ------
@@ -142,6 +148,9 @@ def evaluate(
     num_atom_types: int = 100,
     radius: float | None = 5.0,
     k: int | None = None,
+    use_bond_features: bool = False,
+    use_angle_features: bool = False,
+    use_torsion_features: bool = False,
 ) -> dict[str, float]:
     model.eval()
     total_energy_abs_error = 0.0
@@ -158,6 +167,9 @@ def evaluate(
             num_atom_types=num_atom_types,
             radius=radius,
             k=k,
+            use_bond_features=use_bond_features,
+            use_angle_features=use_angle_features,
+            use_torsion_features=use_torsion_features,
         )
 
         x = geometric_batch.x.detach().requires_grad_(True)
@@ -209,6 +221,9 @@ def trainer(
         lambda_energy: float = 1.0,
         lambda_force: float = 1.0,
         grad_clip: float | None = 1.0,
+        use_bond_features: bool = False,
+        use_angle_features: bool = False,
+        use_torsion_features: bool = False,
         ):
 
     if eval_every <= 0:
@@ -234,7 +249,10 @@ def trainer(
             k = k,
             lambda_energy=lambda_energy,
             lambda_force=lambda_force,
-            grad_clip=grad_clip)
+            grad_clip=grad_clip,
+            use_bond_features=use_bond_features,
+            use_angle_features=use_angle_features,
+            use_torsion_features=use_torsion_features)
 
         if epoch_idx % eval_every == 0 or epoch_idx == epochs:
             val_metrics = evaluate(
@@ -248,6 +266,9 @@ def trainer(
                 num_atom_types=num_atom_types,
                 radius=radius,
                 k=k,
+                use_bond_features=use_bond_features,
+                use_angle_features=use_angle_features,
+                use_torsion_features=use_torsion_features,
             )
             val_energy_mae = val_metrics["energy_mae"]
             val_force_mae = val_metrics["force_mae"]
@@ -295,6 +316,9 @@ def trainer(
         num_atom_types=num_atom_types,
         radius=radius,
         k=k,
+        use_bond_features=use_bond_features,
+        use_angle_features=use_angle_features,
+        use_torsion_features=use_torsion_features,
     )
     test_energy_mae = test_metrics["energy_mae"]
     test_force_mae = test_metrics["force_mae"]
@@ -338,6 +362,9 @@ def main(argv=None):
     ap.add_argument("--edge-featurizer-cutoff", type=float, default=10.0)
     ap.add_argument("--edge-featurizer-gamma", type=float, default=None)
     ap.add_argument("--edge-featurizer-eps", type=float, default=1e-8)
+    ap.add_argument("--use-bond-features", action="store_true")
+    ap.add_argument("--use-angle-features", action="store_true")
+    ap.add_argument("--use-torsion-features", action="store_true")
     ap.add_argument("--egnn-num-layers", type=int, default=4)
     ap.add_argument("--egnn-hidden-dim", type=int, default=128)
     ap.add_argument("--egnn-message-dim", type=int, default=128)
@@ -406,12 +433,19 @@ def main(argv=None):
         gamma=args.edge_featurizer_gamma,
         eps=args.edge_featurizer_eps,
     ).to(device)
+    edge_attr_dim = args.edge_featurizer_num_basis
+    if args.use_bond_features:
+        edge_attr_dim += 2
+    if args.use_angle_features:
+        edge_attr_dim += 1
+    if args.use_torsion_features:
+        edge_attr_dim += 2
 
     model = EGNNRegressor(
         node_feat_dim=args.num_atom_types,
         num_layers=args.egnn_num_layers,
         hidden_dim=args.egnn_hidden_dim,
-        edge_attr_dim=args.edge_featurizer_num_basis,
+        edge_attr_dim=edge_attr_dim,
         message_dim=args.egnn_message_dim,
         dropout=args.egnn_dropout,
         update_coords=False,
@@ -451,6 +485,9 @@ def main(argv=None):
         lambda_energy=args.lambda_energy,
         lambda_force=args.lambda_force,
         grad_clip=args.grad_clip,
+        use_bond_features=args.use_bond_features,
+        use_angle_features=args.use_angle_features,
+        use_torsion_features=args.use_torsion_features,
     )
 
 

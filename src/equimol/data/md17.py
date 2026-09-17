@@ -8,7 +8,12 @@ from torch_geometric.data import Batch
 from torch_geometric.datasets import MD17
 
 from equimol.data.types import GeometricBatch
-from equimol.features import molecule_geometry_features
+from equimol.features import (
+    MolecularEdgeGeometryConfig,
+    molecular_edge_geometry_features,
+    molecule_geometry_features,
+)
+from equimol.geometry import molecular_topology_from_geometry
 from equimol.graphs import fully_connected_edges, knn_graph, radius_graph
 from equimol.layers import GaussianRadialBasis
 
@@ -71,6 +76,33 @@ def compute_energy_stats(dataset, indices: torch.Tensor) -> tuple[torch.Tensor, 
     return values.mean(), values.std(unbiased=False).clamp_min(1e-12)
 
 
+def _infer_batched_topology(z: torch.Tensor, x: torch.Tensor, batch: torch.Tensor):
+    bond_indices = []
+    angle_indices = []
+    torsion_indices = []
+
+    for graph_id in batch.unique(sorted=True).tolist():
+        node_idx = torch.nonzero(batch == graph_id, as_tuple=False).flatten()
+        if node_idx.numel() == 0:
+            continue
+        topology = molecular_topology_from_geometry(z[node_idx], x[node_idx])
+        offset = node_idx.min()
+        bond_indices.append(topology.bond_index + offset)
+        angle_indices.append(topology.angle_index + offset)
+        torsion_indices.append(topology.torsion_index + offset)
+
+    def cat_or_empty(parts, width: int) -> torch.Tensor:
+        if not parts:
+            return torch.empty((width, 0), dtype=torch.long, device=x.device)
+        return torch.cat(parts, dim=1)
+
+    return (
+        cat_or_empty(bond_indices, 2),
+        cat_or_empty(angle_indices, 3),
+        cat_or_empty(torsion_indices, 4),
+    )
+
+
 def prepare_md17_batch(
     data: Batch,
     radial_basis: GaussianRadialBasis | None = None,
@@ -78,6 +110,9 @@ def prepare_md17_batch(
     num_atom_types: int = 100,
     radius: float | None = 5.0,
     k: int | None = None,
+    use_bond_features: bool = False,
+    use_angle_features: bool = False,
+    use_torsion_features: bool = False,
 ) -> GeometricBatch:
     if data is None:
         raise ValueError("data is None")
@@ -110,12 +145,36 @@ def prepare_md17_batch(
     edge_attr = radial_basis(x=x, edge_index=edge_index) if radial_basis is not None else None
     energy = data.energy.float().reshape(-1)
     force = data.force.float()
+    use_edge_geometry = use_bond_features or use_angle_features or use_torsion_features
+    bond_index = getattr(data, "bond_index", None)
+    angle_index = getattr(data, "angle_index", None)
+    torsion_index = getattr(data, "torsion_index", None)
+    if use_edge_geometry and bond_index is None:
+        bond_index, angle_index, torsion_index = _infer_batched_topology(z, x, batch)
+
     geometry = molecule_geometry_features(
         x,
-        bond_index=getattr(data, "bond_index", None),
-        angle_index=getattr(data, "angle_index", None),
-        torsion_index=getattr(data, "torsion_index", None),
+        bond_index=bond_index,
+        angle_index=angle_index,
+        torsion_index=torsion_index,
     )
+    edge_geometry_config = MolecularEdgeGeometryConfig(
+        use_bond_features=use_bond_features,
+        use_angle_features=use_angle_features,
+        use_torsion_features=use_torsion_features,
+    )
+    extra_edge_attr = molecular_edge_geometry_features(
+        edge_index,
+        bond_index=geometry.bond_index,
+        bond_lengths=geometry.bond_lengths,
+        angle_index=geometry.angle_index,
+        angle_features=geometry.angle_features,
+        torsion_index=geometry.torsion_index,
+        torsion_features=geometry.torsion_features,
+        config=edge_geometry_config,
+    )
+    if extra_edge_attr.numel() > 0:
+        edge_attr = extra_edge_attr if edge_attr is None else torch.cat([edge_attr, extra_edge_attr], dim=-1)
 
     return GeometricBatch(
         h=h,

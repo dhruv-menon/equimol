@@ -62,3 +62,51 @@ def test_prepare_md17_batch_builds_energy_force_inputs():
     assert batch.angle_features.shape == torch.Size([2, 1])
     assert batch.torsion_index is None
     assert batch.torsion_features is None
+
+
+def test_prepare_md17_batch_adds_edge_geometry_features():
+    frame = Data(
+        z=torch.tensor([6, 1]),
+        pos=torch.randn(2, 3),
+        energy=torch.tensor([-10.0]),
+        force=torch.randn(2, 3),
+        bond_index=torch.tensor([[0], [1]]),
+    )
+    data = Batch.from_data_list([frame])
+
+    batch = prepare_md17_batch(
+        data,
+        graph="fully_connected",
+        use_bond_features=True,
+    )
+
+    assert batch.edge_attr.shape == torch.Size([2, 2])
+    assert torch.equal(batch.edge_attr[:, 0], torch.ones(2))
+
+
+def test_prepare_md17_batch_infers_topology_when_geometry_features_are_enabled():
+    frame = Data(
+        z=torch.tensor([6, 6, 6, 6]),
+        pos=torch.tensor(
+            [
+                [0.0, 0.0, 0.0],
+                [1.4, 0.0, 0.0],
+                [2.8, 0.0, 0.0],
+                [4.2, 0.0, 0.0],
+            ]
+        ),
+        energy=torch.tensor([-10.0]),
+        force=torch.randn(4, 3),
+    )
+    data = Batch.from_data_list([frame])
+
+    batch = prepare_md17_batch(
+        data,
+        graph="fully_connected",
+        use_bond_features=True,
+        use_angle_features=True,
+        use_torsion_features=True,
+    )
+
+    assert batch.bond_index.shape == torch.Size([2, 6])
+    assert batch.edge_attr.shape == torch.Size([12, 5])
