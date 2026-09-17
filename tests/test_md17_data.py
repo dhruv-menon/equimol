@@ -28,12 +28,16 @@ def test_prepare_md17_batch_builds_energy_force_inputs():
         pos=torch.randn(3, 3),
         energy=torch.tensor([-10.0]),
         force=torch.randn(3, 3),
+        bond_index=torch.tensor([[0, 1], [1, 2]]),
+        angle_index=torch.tensor([[0], [1], [2]]),
     )
     frame1 = Data(
         z=torch.tensor([8, 1, 1]),
         pos=torch.randn(3, 3),
         energy=torch.tensor([-12.0]),
         force=torch.randn(3, 3),
+        bond_index=torch.tensor([[0, 1], [1, 2]]),
+        angle_index=torch.tensor([[0], [1], [2]]),
     )
     data = Batch.from_data_list([frame0, frame1])
     radial_basis = build_radial_basis(num_basis=4, cutoff=5.0)
@@ -52,3 +56,9 @@ def test_prepare_md17_batch_builds_energy_force_inputs():
     assert torch.equal(batch.batch, torch.tensor([0, 0, 0, 1, 1, 1]))
     assert torch.equal(batch.y, torch.tensor([-10.0, -12.0]))
     assert batch.force.shape == torch.Size([6, 3])
+    assert batch.bond_index.shape == torch.Size([2, 4])
+    assert batch.angle_index.shape == torch.Size([3, 2])
+    assert batch.bond_lengths.shape == torch.Size([4, 1])
+    assert batch.angle_features.shape == torch.Size([2, 1])
+    assert batch.torsion_index is None
+    assert batch.torsion_features is None

@@ -8,6 +8,7 @@ from torch_geometric.data import Batch
 from torch_geometric.datasets import MD17
 
 from equimol.data.types import GeometricBatch
+from equimol.features import molecule_geometry_features
 from equimol.graphs import fully_connected_edges, knn_graph, radius_graph
 from equimol.layers import GaussianRadialBasis
 
@@ -109,6 +110,12 @@ def prepare_md17_batch(
     edge_attr = radial_basis(x=x, edge_index=edge_index) if radial_basis is not None else None
     energy = data.energy.float().reshape(-1)
     force = data.force.float()
+    geometry = molecule_geometry_features(
+        x,
+        bond_index=getattr(data, "bond_index", None),
+        angle_index=getattr(data, "angle_index", None),
+        torsion_index=getattr(data, "torsion_index", None),
+    )
 
     return GeometricBatch(
         h=h,
@@ -119,4 +126,10 @@ def prepare_md17_batch(
         y=energy,
         force=force,
         mask=None,
+        bond_index=geometry.bond_index,
+        angle_index=geometry.angle_index,
+        torsion_index=geometry.torsion_index,
+        bond_lengths=geometry.bond_lengths,
+        angle_features=geometry.angle_features,
+        torsion_features=geometry.torsion_features,
     )

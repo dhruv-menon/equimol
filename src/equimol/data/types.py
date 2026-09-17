@@ -14,3 +14,9 @@ class GeometricBatch:
     y: torch.Tensor | None = None
     force: torch.Tensor | None = None
     mask: torch.Tensor | None = None
+    bond_index: torch.Tensor | None = None
+    angle_index: torch.Tensor | None = None
+    torsion_index: torch.Tensor | None = None
+    bond_lengths: torch.Tensor | None = None
+    angle_features: torch.Tensor | None = None
+    torsion_features: torch.Tensor | None = None
