@@ -175,6 +175,7 @@ def trainer(
 
     checkpoint_path = Path(checkpoint_path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    last_checkpoint_path = checkpoint_path.with_suffix(".last.pt")
     best_val_mae = float("inf")
     history = []
 
@@ -215,23 +216,25 @@ def trainer(
                     "val_mae": val_mae,
                 }
             )
+            checkpoint = {
+                "model": model.state_dict(),
+                "optimizer": optimizer.state_dict(),
+                "epoch": epoch_idx,
+                "best_val_mae": best_val_mae,
+                "target_mean": target_mean,
+                "target_std": target_std,
+                "history": history,
+                "test_mae": None,
+                "metadata": metadata or {},
+            }
 
             if val_mae < best_val_mae:
                 best_val_mae = val_mae
-                torch.save(
-                    {
-                        "model": model.state_dict(),
-                        "optimizer": optimizer.state_dict(),
-                        "epoch": epoch_idx,
-                        "best_val_mae": best_val_mae,
-                        "target_mean": target_mean,
-                        "target_std": target_std,
-                        "history": history,
-                        "test_mae": None,
-                        "metadata": metadata or {},
-                    },
-                    checkpoint_path,
-                )
+                checkpoint["best_val_mae"] = best_val_mae
+                torch.save(checkpoint, checkpoint_path)
+
+            checkpoint["best_val_mae"] = best_val_mae
+            torch.save(checkpoint, last_checkpoint_path)
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model"])
@@ -252,6 +255,7 @@ def trainer(
     checkpoint["test_mae"] = test_mae
     checkpoint["best_val_mae"] = best_val_mae
     torch.save(checkpoint, checkpoint_path)
+    torch.save(checkpoint, last_checkpoint_path)
     print(f"best_val_mae={best_val_mae:.6g} test_mae={test_mae:.6g}")
     return best_val_mae, test_mae
 
