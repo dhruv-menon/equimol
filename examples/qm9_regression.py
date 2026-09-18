@@ -21,7 +21,7 @@ from equimol.data import (
     split_qm9,
 )
 
-from equimol.models import EGNNRegressor
+from equimol.models import AttentiveEGNNRegressor, EGNNRegressor
 from equimol.layers import GaussianRadialBasis
 
 
@@ -281,9 +281,11 @@ def main(argv=None):
     ap.add_argument("--edge-featurizer-cutoff", type=float, default=10.0)
     ap.add_argument("--edge-featurizer-gamma", type=float, default=None)
     ap.add_argument("--edge-featurizer-eps", type=float, default=1e-8)
+    ap.add_argument("--model", choices=["egnn", "attentive-egnn"], default="egnn")
     ap.add_argument("--egnn-num-layers", type=int, default=4)
     ap.add_argument("--egnn-hidden-dim", type=int, default=128)
     ap.add_argument("--egnn-message-dim", type=int, default=128)
+    ap.add_argument("--egnn-attention-dim", type=int, default=128)
     ap.add_argument("--egnn-dropout", type=float, default=0.0)
     ap.add_argument("--egnn-coord-step-size", type=float, default=0.1)
     ap.add_argument("--egnn-pooling", choices=["sum", "mean"], default="mean")
@@ -352,17 +354,31 @@ def main(argv=None):
         eps=args.edge_featurizer_eps,
     ).to(device)
 
-    model = EGNNRegressor(
-        node_feat_dim=args.num_atom_types,
-        num_layers=args.egnn_num_layers,
-        hidden_dim=args.egnn_hidden_dim,
-        edge_attr_dim=args.edge_featurizer_num_basis,
-        message_dim=args.egnn_message_dim,
-        dropout=args.egnn_dropout,
-        coord_step_size=args.egnn_coord_step_size,
-        pooling=args.egnn_pooling,
-        eps=args.egnn_eps,
-    ).to(device)
+    if args.model == "egnn":
+        model = EGNNRegressor(
+            node_feat_dim=args.num_atom_types,
+            num_layers=args.egnn_num_layers,
+            hidden_dim=args.egnn_hidden_dim,
+            edge_attr_dim=args.edge_featurizer_num_basis,
+            message_dim=args.egnn_message_dim,
+            dropout=args.egnn_dropout,
+            coord_step_size=args.egnn_coord_step_size,
+            pooling=args.egnn_pooling,
+            eps=args.egnn_eps,
+        ).to(device)
+    else:
+        model = AttentiveEGNNRegressor(
+            node_feat_dim=args.num_atom_types,
+            num_layers=args.egnn_num_layers,
+            hidden_dim=args.egnn_hidden_dim,
+            edge_attr_dim=args.edge_featurizer_num_basis,
+            message_dim=args.egnn_message_dim,
+            attention_dim=args.egnn_attention_dim,
+            dropout=args.egnn_dropout,
+            coord_step_size=args.egnn_coord_step_size,
+            pooling=args.egnn_pooling,
+            eps=args.egnn_eps,
+        ).to(device)
 
     optimizer = optim.AdamW(
         params = model.parameters(),
