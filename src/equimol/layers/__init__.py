@@ -7,6 +7,7 @@ from .attention import InvariantEdgeAttention, segmented_softmax
 from .egnn import EGNNLayer
 from .pooling import global_add_pool, global_mean_pool
 from .attentive_egnn import AttentiveEGNNLayer
+from .vector_egnn import VectorEGNNBackbone, VectorEGNNLayer
 from .radial import GaussianRadialBasis
 from .time import SinusoidalTimeEmbedding, TimestepEmbedding
 
@@ -18,6 +19,8 @@ __all__ = [
     "PairwiseDistance",
     "SinusoidalTimeEmbedding",
     "TimestepEmbedding",
+    "VectorEGNNBackbone",
+    "VectorEGNNLayer",
     "global_add_pool",
     "global_mean_pool",
     "segment_sum",

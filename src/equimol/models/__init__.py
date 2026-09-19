@@ -3,6 +3,7 @@
 from .denoisers import MolecularEGNNDenoiser
 from .regressors import EGNNRegressor
 from .regressors import AttentiveEGNNRegressor
+from .vector_egnn import VectorEGNNRegressor
 from .backbones import EGNNBackbone
 from .backbones import AttentiveEGNNBackbone
 
@@ -12,4 +13,5 @@ __all__ = [
     "EGNNBackbone",
     "EGNNRegressor",
     "MolecularEGNNDenoiser",
+    "VectorEGNNRegressor",
 ]
