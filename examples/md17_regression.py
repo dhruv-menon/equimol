@@ -20,7 +20,7 @@ from equimol.data import (
     split_md17,
 )
 
-from equimol.models import AttentiveEGNNRegressor, EGNNRegressor
+from equimol.models import AttentiveEGNNRegressor, EGNNRegressor, VectorEGNNRegressor
 from equimol.layers import GaussianRadialBasis
 
 
@@ -371,10 +371,11 @@ def main(argv=None):
     ap.add_argument("--use-bond-features", action="store_true")
     ap.add_argument("--use-angle-features", action="store_true")
     ap.add_argument("--use-torsion-features", action="store_true")
-    ap.add_argument("--model", choices=["egnn", "attentive-egnn"], default="egnn")
+    ap.add_argument("--model", choices=["egnn", "attentive-egnn", "vector-egnn"], default="egnn")
     ap.add_argument("--egnn-num-layers", type=int, default=4)
     ap.add_argument("--egnn-hidden-dim", type=int, default=128)
     ap.add_argument("--egnn-message-dim", type=int, default=128)
+    ap.add_argument("--egnn-vector-dim", type=int, default=64)
     ap.add_argument("--egnn-attention-dim", type=int, default=128)
     ap.add_argument("--egnn-dropout", type=float, default=0.0)
     ap.add_argument("--egnn-coord-step-size", type=float, default=0.1)
@@ -470,7 +471,7 @@ def main(argv=None):
             pooling=args.egnn_pooling,
             eps=args.egnn_eps,
         ).to(device)
-    else:
+    elif args.model == "attentive-egnn":
         model = AttentiveEGNNRegressor(
             node_feat_dim=args.num_atom_types,
             num_layers=args.egnn_num_layers,
@@ -479,6 +480,22 @@ def main(argv=None):
             message_dim=args.egnn_message_dim,
             attention_dim=args.egnn_attention_dim,
             dropout=args.egnn_dropout,
+            coord_step_size=args.egnn_coord_step_size,
+            pooling=args.egnn_pooling,
+            eps=args.egnn_eps,
+        ).to(device)
+    else:
+        model = VectorEGNNRegressor(
+            node_feat_dim=args.num_atom_types,
+            num_layers=args.egnn_num_layers,
+            hidden_dim=args.egnn_hidden_dim,
+            edge_attr_dim=edge_attr_dim,
+            message_dim=args.egnn_message_dim,
+            vector_dim=args.egnn_vector_dim,
+            attention=True,
+            attention_dim=args.egnn_attention_dim,
+            dropout=args.egnn_dropout,
+            update_coords=False,
             coord_step_size=args.egnn_coord_step_size,
             pooling=args.egnn_pooling,
             eps=args.egnn_eps,
