@@ -3,6 +3,7 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 from e3nn import o3
+from e3nn.nn import NormActivation
 
 # ----------------------------------------
 # An e3nn-based equivariant message passing layer.
@@ -29,7 +30,7 @@ from e3nn import o3
 #    Y_ij = Y_lm(rhat_ij)
 #    w_ij = phi_r([d_ij, edge_attr_ij])
 #    m_ij = TP(h_j, Y_ij; w_ij)
-#    h_i <- h_i + Linear(sum_j m_ij)
+#    h_i <- sigma_norm(h_i + Linear(sum_j m_ij))
 #
 # Why equivariant:
 #   - Spherical harmonics transform according to their irreps under rotations.
@@ -81,6 +82,12 @@ class IrrepEGNNLayer(nn.Module):
             nn.Linear(radial_hidden_dim, self.tp.weight_numel),
         )
         self.update = o3.Linear(self.irreps_hidden, self.irreps_hidden)
+        self.activation = NormActivation(
+            self.irreps_hidden,
+            scalar_nonlinearity=torch.nn.functional.silu,
+            normalize=True,
+            epsilon=eps,
+        )
 
         if attention:
             self.attention_mlp = nn.Sequential(
@@ -126,7 +133,8 @@ class IrrepEGNNLayer(nn.Module):
         aggregated = torch.zeros_like(h)
         aggregated.index_add_(0, dst, messages)
         update = self.update(aggregated)
-        return h + update if self.residual else update
+        h = h + update if self.residual else update
+        return self.activation(h)
 
 
 class IrrepEGNNBackbone(nn.Module):
