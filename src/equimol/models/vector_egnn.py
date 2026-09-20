@@ -1,82 +1,3 @@
-"""VectorEGNNRegressor scaffold.
-
-Goal:
-    Add l = 1 vector channels to the current l = 0 scalar EGNN regressor.
-
-Inputs:
-    z_i or h_i      atom/node scalar features
-    x_i             coordinates in R^3
-    edge_index      directed edges j -> i
-    e_ij            invariant edge features / radial basis
-    batch_i         graph id per atom
-
-Hidden states:
-    h_i^l in R^C
-    v_i^l in R^{3 x C_v}
-
-Initialization:
-    h_i^0 = phi_embed(z_i)
-    v_i^0 = 0
-
-Geometry:
-    r_ij = x_j - x_i
-    d_ij = ||r_ij||_2
-    rhat_ij = r_ij / (d_ij + eps)
-
-Scalar edge message:
-    m_ij = phi_m(h_i^l, h_j^l, d_ij, e_ij)
-
-Optional invariant attention:
-    a_ij = sigmoid(phi_a(h_i^l, h_j^l, d_ij, e_ij))
-    m_ij <- a_ij * m_ij
-
-Scalar aggregation:
-    M_i = sum_{j in N(i)} m_ij
-
-Vector message:
-    alpha_ij = phi_v(m_ij)
-    u_ij = rhat_ij outer alpha_ij
-    U_i = sum_{j in N(i)} u_ij
-
-Vector update:
-    v_i^{l+1} = phi_vv(v_i^l) + U_i
-
-Optional scalar gate on vector channels:
-    g_i = sigmoid(phi_g(h_i^l))
-    v_i^{l+1} <- g_i * v_i^{l+1}
-
-Vector-to-scalar invariant feedback:
-    s_i = ||v_i^{l+1}||_2
-    optionally: s_i = [||v_i^{l+1}||_2, <v_i^a, v_i^b>]
-
-Scalar update:
-    h_i^{l+1} = h_i^l + phi_h(h_i^l, M_i, s_i)
-
-Readout:
-    g = sum_i phi_read(h_i^L)
-    E_pred = phi_out(g)
-
-Forces:
-    F_pred = -dE_pred / dx
-
-Training objective:
-    L_E = MAE(E_pred, E_true)
-    L_F = MAE(F_pred, F_true)
-    L = lambda_E * L_E + lambda_F * L_F
-
-Expected architecture:
-    VectorEGNNRegressor
-        node encoder
-        L x VectorEGNNLayer
-            scalar edge message
-            optional invariant attention
-            vector message from rhat_ij
-            vector channel mixing
-            vector norm/dot feedback into scalar stream
-            scalar residual update
-        graph pooling
-        energy head
-"""
 from __future__ import annotations
 
 import torch
@@ -85,6 +6,7 @@ import torch.nn as nn
 from equimol.layers.pooling import global_add_pool, global_mean_pool
 from equimol.layers.vector_egnn import VectorEGNNBackbone
 
+
 def _get_pooling(pooling: str):
     if pooling == "sum":
         return global_add_pool
@@ -92,6 +14,39 @@ def _get_pooling(pooling: str):
         return global_mean_pool
     else:
         raise ValueError(f"pooling type: {pooling} is not supported by equimol")
+
+
+# ----------------------------------------
+# A scalar graph regressor built on a VectorEGNN backbone.
+#   - Predicts one scalar per graph from invariant atom features, coordinates,
+#     and learned l = 1 vector hidden states.
+#   - Useful for conservative energy-force models where forces are obtained by
+#     differentiating the scalar prediction with respect to coordinates.
+#
+# Shapes:
+#    h: [N, F] input atom/node scalar features
+#    x: [N, D] coordinates
+#    edge_index: [2, E] directed graph edges
+#    edge_attr: [E, A] optional invariant edge features
+#    batch: [N] graph id per node, or None for one graph
+#    encoded h: [N, H] hidden scalar node states after node_encoder
+#    v: [N, D, V] learned vector hidden states inside VectorEGNNBackbone
+#    updated_h: [N, H] hidden scalar node states after VectorEGNNBackbone
+#    graph_state: [B, H] pooled graph representations
+#    output: [B] scalar graph predictions
+#
+# The model is invariant
+#   - Vector channels are equivariant because they are built from scalar-weighted
+#     relative directions. Vector-to-scalar feedback uses vector norms, which are
+#     rotation invariant. The readout pools only scalar node states, so graph
+#     predictions are invariant to translation, rotation, and node permutation
+#     when edge_index is transformed consistently.
+#
+# Complexity:
+#    - O(LE(M + DV)) message passing for L layers, E edges, message width M,
+#      coordinate dimension D, and vector width V.
+# ----------------------------------------
+
 
 class VectorEGNNRegressor(nn.Module):
     def __init__(self, 
@@ -146,6 +101,18 @@ class VectorEGNNRegressor(nn.Module):
                 batch: torch.Tensor | None = None,
                 edge_attr: torch.Tensor | None = None,
                 ) -> torch.Tensor:
+        """Predict one scalar per graph.
+
+        Args:
+            h: Input invariant node features with shape [N, F]
+            x: Coordinates with shape [N, 3]
+            edge_index: Directed edges with shape [2, E]
+            batch: Optional graph ids with shape [N]
+            edge_attr: Optional invariant edge features with shape [E, A]
+
+        Returns:
+            Tensor with shape [B]"""
+
         h = self.node_encoder(h.float())
         x = x.float()
         v = torch.zeros(h.size(0), x.size(1), self.vector_dim, device=h.device, dtype=h.dtype)
