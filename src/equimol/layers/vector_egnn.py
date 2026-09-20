@@ -6,6 +6,7 @@ import torch.nn as nn
 from equimol.utils import segment_sum
 from equimol.layers.attention import InvariantEdgeAttention
 from equimol.layers.distance import PairwiseDistance
+
 # ----------------------------------------
 # An Vector EGNN layer with edge attention
 #   - Implements the l = 1 irrep similar to the PaiNN style architecture.
