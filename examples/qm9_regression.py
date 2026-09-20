@@ -168,6 +168,7 @@ def trainer(
         radius: float | None = None,
         k: int | None = None,
         eval_every: int = 20,
+        resume_from_checkpoint: str | None = None,
         ):
 
     if eval_every <= 0:
@@ -178,8 +179,19 @@ def trainer(
     last_checkpoint_path = checkpoint_path.with_suffix(".last.pt")
     best_val_mae = float("inf")
     history = []
+    start_epoch = 0
 
-    for epoch_idx in range(1, epochs + 1):
+    if resume_from_checkpoint is not None:
+        resume_checkpoint = torch.load(resume_from_checkpoint, map_location=device)
+        model.load_state_dict(resume_checkpoint["model"])
+        if "optimizer" in resume_checkpoint:
+            optimizer.load_state_dict(resume_checkpoint["optimizer"])
+        start_epoch = int(resume_checkpoint.get("epoch", 0))
+        best_val_mae = float(resume_checkpoint.get("best_val_mae", best_val_mae))
+        history = list(resume_checkpoint.get("history", []))
+        print(f"resumed_from={resume_from_checkpoint} start_epoch={start_epoch}")
+
+    for epoch_idx in range(start_epoch + 1, epochs + 1):
         loss = train_epoch(
             model = model, 
             optimizer = optimizer,
@@ -278,6 +290,7 @@ def main(argv=None):
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=1)
     ap.add_argument("--checkpoint-path", type=str, default=None)
+    ap.add_argument("--resume-from-checkpoint", type=str, default=None)
     ap.add_argument("--graph", choices=["fully_connected", "radius", "knn"], default="fully_connected")
     ap.add_argument("--radius", type=float, default=None)
     ap.add_argument("--k", type=int, default=None)
@@ -446,6 +459,7 @@ def main(argv=None):
         radius=args.radius,
         k=args.k,
         eval_every=args.eval_every,
+        resume_from_checkpoint=args.resume_from_checkpoint,
     )
 
 
