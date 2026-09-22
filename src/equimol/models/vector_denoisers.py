@@ -61,10 +61,10 @@ Data-agnostic point:
         - node_mask used by the loss
 
 Implementation TODO:
-    1. Mirror MolecularEGNNDenoiser constructor validation.
+    1. Mirror EGNNCoordinateDenoiser constructor validation.
     2. Replace EGNNBackbone with VectorEGNNBackbone.
     3. Build v0 = zeros [N, 3, vector_dim].
-    4. Reuse timestep broadcast logic from MolecularEGNNDenoiser.
+    4. Reuse timestep broadcast logic from EGNNCoordinateDenoiser.
     5. Choose the first noise head: gamma(h^L) * (x^L - x_t).
     6. Add tests for shape, translation invariance, rotation equivariance,
        permutation equivariance, and edge_attr support.
@@ -80,8 +80,8 @@ from torch import nn
 from equimol.layers.time import TimestepEmbedding
 from equimol.layers.vector_egnn import VectorEGNNBackbone
 
-class VectorEGNNDenoiser(nn.Module):
-    """Vector (l = 1) epsilon-prediction denoiser for protein backbone diffusion"""
+class VectorEGNNCoordinateDenoiser(nn.Module):
+    """VectorEGNN epsilon-prediction denoiser for coordinate diffusion."""
     def __init__(
             self,
             node_dim: int,
@@ -272,6 +272,8 @@ class VectorEGNNDenoiser(nn.Module):
         eps_hat = gate * delta_x
         return eps_hat
 
+
+VectorEGNNDenoiser = VectorEGNNCoordinateDenoiser
 
 
 

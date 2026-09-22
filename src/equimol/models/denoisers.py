@@ -9,7 +9,7 @@ from equimol.layers.time import TimestepEmbedding
 from equimol.models.backbones import AttentiveEGNNBackbone, EGNNBackbone
 
 # ----------------------------------------
-# Molecular EGNN denoiser.
+# EGNN coordinate denoiser.
 #    - Predict coordinate noise for DDPM-style coordinate diffusion.
 #
 # Shapes:
@@ -40,7 +40,7 @@ from equimol.models.backbones import AttentiveEGNNBackbone, EGNNBackbone
 # ----------------------------------------
 
 
-class MolecularEGNNDenoiser(nn.Module):
+class EGNNCoordinateDenoiser(nn.Module):
     """EGNN epsilon-prediction denoiser for coordinate diffusion."""
 
     def __init__(
@@ -229,4 +229,6 @@ class MolecularEGNNDenoiser(nn.Module):
 
         eps_hat = gate * delta_x
         return eps_hat
-    
+
+
+MolecularEGNNDenoiser = EGNNCoordinateDenoiser

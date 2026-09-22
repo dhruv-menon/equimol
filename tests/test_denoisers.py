@@ -2,10 +2,15 @@ import pytest
 import torch
 
 from equimol.graphs.fully_connected import fully_connected_edges
-from equimol.models import MolecularEGNNDenoiser
-from equimol.models import VectorEGNNDenoiser
+from equimol.models import EGNNCoordinateDenoiser, MolecularEGNNDenoiser
+from equimol.models import VectorEGNNCoordinateDenoiser, VectorEGNNDenoiser
 
 pytestmark = pytest.mark.denoiser
+
+
+def test_coordinate_denoiser_legacy_aliases():
+    assert MolecularEGNNDenoiser is EGNNCoordinateDenoiser
+    assert VectorEGNNDenoiser is VectorEGNNCoordinateDenoiser
 
 
 def _rotation_matrix(dtype=torch.float32, device=None):
@@ -39,7 +44,7 @@ def denoiser_input():
     edge_index = fully_connected_edges(num_nodes)
     batch = torch.tensor([0, 0, 0, 1, 1, 1])
     t = torch.tensor([3, 7])
-    model = MolecularEGNNDenoiser(
+    model = EGNNCoordinateDenoiser(
         node_dim=node_dim,
         hidden_dim=hidden_dim,
         message_dim=hidden_dim,
@@ -105,7 +110,7 @@ def test_molecular_egnn_denoiser_permutation_equivariance(denoiser_input):
 def test_molecular_egnn_denoiser_accepts_edge_attr(denoiser_input):
     _, h, x_t, t, edge_index, batch = denoiser_input
     edge_attr = torch.randn(edge_index.shape[1], 2)
-    model = MolecularEGNNDenoiser(
+    model = EGNNCoordinateDenoiser(
         node_dim=h.shape[-1],
         hidden_dim=16,
         edge_attr_dim=2,
@@ -122,7 +127,7 @@ def test_molecular_egnn_denoiser_accepts_edge_attr(denoiser_input):
 
 def test_molecular_egnn_denoiser_supports_attention_backbone(denoiser_input):
     _, h, x_t, t, edge_index, batch = denoiser_input
-    model = MolecularEGNNDenoiser(
+    model = EGNNCoordinateDenoiser(
         node_dim=h.shape[-1],
         hidden_dim=16,
         message_dim=16,
@@ -140,25 +145,25 @@ def test_molecular_egnn_denoiser_supports_attention_backbone(denoiser_input):
 
 def test_molecular_egnn_denoiser_validates_constructor_inputs():
     with pytest.raises(ValueError, match="node_dim"):
-        MolecularEGNNDenoiser(node_dim=0)
+        EGNNCoordinateDenoiser(node_dim=0)
 
     with pytest.raises(ValueError, match="hidden_dim"):
-        MolecularEGNNDenoiser(node_dim=4, hidden_dim=0)
+        EGNNCoordinateDenoiser(node_dim=4, hidden_dim=0)
 
     with pytest.raises(ValueError, match="num_layers"):
-        MolecularEGNNDenoiser(node_dim=4, num_layers=0)
+        EGNNCoordinateDenoiser(node_dim=4, num_layers=0)
 
     with pytest.raises(ValueError, match="edge_attr_dim"):
-        MolecularEGNNDenoiser(node_dim=4, edge_attr_dim=-1)
+        EGNNCoordinateDenoiser(node_dim=4, edge_attr_dim=-1)
 
     with pytest.raises(ValueError, match="message_dim"):
-        MolecularEGNNDenoiser(node_dim=4, message_dim=0)
+        EGNNCoordinateDenoiser(node_dim=4, message_dim=0)
 
     with pytest.raises(ValueError, match="attention_dim"):
-        MolecularEGNNDenoiser(node_dim=4, attention_dim=0)
+        EGNNCoordinateDenoiser(node_dim=4, attention_dim=0)
 
     with pytest.raises(ValueError, match="time_embedding_dim"):
-        MolecularEGNNDenoiser(node_dim=4, time_embedding_dim=0)
+        EGNNCoordinateDenoiser(node_dim=4, time_embedding_dim=0)
 
 
 def test_molecular_egnn_denoiser_validates_forward_inputs(denoiser_input):
@@ -198,7 +203,7 @@ def vector_denoiser_input():
     edge_index = fully_connected_edges(num_nodes)
     batch = torch.tensor([0, 0, 0, 1, 1, 1])
     t = torch.tensor([3, 7])
-    model = VectorEGNNDenoiser(
+    model = VectorEGNNCoordinateDenoiser(
         node_dim=node_dim,
         hidden_dim=hidden_dim,
         message_dim=hidden_dim,
@@ -230,10 +235,10 @@ def test_vector_egnn_denoiser_rotation_equivariance(vector_denoiser_input):
 
 def test_vector_egnn_denoiser_validates_constructor_inputs():
     with pytest.raises(ValueError, match="node_dim"):
-        VectorEGNNDenoiser(node_dim=0)
+        VectorEGNNCoordinateDenoiser(node_dim=0)
 
     with pytest.raises(ValueError, match="vector_dim"):
-        VectorEGNNDenoiser(node_dim=4, vector_dim=0)
+        VectorEGNNCoordinateDenoiser(node_dim=4, vector_dim=0)
 
 
 def test_vector_egnn_denoiser_validates_forward_inputs(vector_denoiser_input):
