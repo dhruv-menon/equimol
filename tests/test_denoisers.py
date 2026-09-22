@@ -3,6 +3,7 @@ import torch
 
 from equimol.graphs.fully_connected import fully_connected_edges
 from equimol.models import MolecularEGNNDenoiser
+from equimol.models import VectorEGNNDenoiser
 
 pytestmark = pytest.mark.denoiser
 
@@ -164,3 +165,67 @@ def test_molecular_egnn_denoiser_validates_forward_inputs(denoiser_input):
 
     with pytest.raises(ValueError, match="edge_attr"):
         model(h, x_t, t, edge_index, batch=batch, edge_attr=torch.randn(2, 2))
+
+
+@pytest.fixture()
+def vector_denoiser_input():
+    num_nodes = 6
+    node_dim = 5
+    hidden_dim = 16
+    h = torch.randn(num_nodes, node_dim)
+    x_t = torch.randn(num_nodes, 3)
+    edge_index = fully_connected_edges(num_nodes)
+    batch = torch.tensor([0, 0, 0, 1, 1, 1])
+    t = torch.tensor([3, 7])
+    model = VectorEGNNDenoiser(
+        node_dim=node_dim,
+        hidden_dim=hidden_dim,
+        message_dim=hidden_dim,
+        time_embedding_dim=hidden_dim,
+        vector_dim=8,
+        num_layers=2,
+    )
+    model.eval()
+    return model, h, x_t, t, edge_index, batch
+
+
+def test_vector_egnn_denoiser_returns_node_coordinate_noise(vector_denoiser_input):
+    model, h, x_t, t, edge_index, batch = vector_denoiser_input
+
+    eps_hat = model(h, x_t, t, edge_index, batch=batch)
+
+    assert eps_hat.shape == x_t.shape
+
+
+def test_vector_egnn_denoiser_rotation_equivariance(vector_denoiser_input):
+    model, h, x_t, t, edge_index, batch = vector_denoiser_input
+    rotation = _rotation_matrix(dtype=x_t.dtype, device=x_t.device)
+
+    eps_hat = model(h, x_t, t, edge_index, batch=batch)
+    rotated_eps_hat = model(h, x_t @ rotation.T, t, edge_index, batch=batch)
+
+    assert torch.allclose(eps_hat @ rotation.T, rotated_eps_hat, atol=1e-5)
+
+
+def test_vector_egnn_denoiser_validates_constructor_inputs():
+    with pytest.raises(ValueError, match="node_dim"):
+        VectorEGNNDenoiser(node_dim=0)
+
+    with pytest.raises(ValueError, match="vector_dim"):
+        VectorEGNNDenoiser(node_dim=4, vector_dim=0)
+
+
+def test_vector_egnn_denoiser_validates_forward_inputs(vector_denoiser_input):
+    model, h, x_t, t, edge_index, batch = vector_denoiser_input
+
+    with pytest.raises(ValueError, match="feature dim"):
+        model(torch.randn(h.shape[0], h.shape[1] + 1), x_t, t, edge_index, batch=batch)
+
+    with pytest.raises(ValueError, match="coordinate dim"):
+        model(h, torch.randn(h.shape[0], 2), t, edge_index, batch=batch)
+
+    with pytest.raises(ValueError, match="graph-wise timesteps require batch"):
+        model(h, x_t, t, edge_index)
+
+    with pytest.raises(TypeError, match="edge_index"):
+        model(h, x_t, t, edge_index.float(), batch=batch)
