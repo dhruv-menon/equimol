@@ -16,6 +16,7 @@ from .qm9 import (
     prepare_qm9_batch,
     split_qm9,
 )
+from .protein import ProteinBackboneBatchConfig, prepare_protein_backbone_batch
 from .types import GeometricBatch
 
 __all__ = [
@@ -29,7 +30,9 @@ __all__ = [
     "load_md17",
     "load_qm9",
     "prepare_md17_batch",
+    "prepare_protein_backbone_batch",
     "prepare_qm9_batch",
+    "ProteinBackboneBatchConfig",
     "split_md17",
     "split_qm9",
 ]
