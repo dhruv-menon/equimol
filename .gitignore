@@ -9,6 +9,7 @@ venv/
 
 # Generated data and training artifacts
 /data/
+/data/cath/
 /checkpoints/
 /figures/
 /helpers/plotters.py
