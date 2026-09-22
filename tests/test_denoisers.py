@@ -120,6 +120,24 @@ def test_molecular_egnn_denoiser_accepts_edge_attr(denoiser_input):
     assert eps_hat.shape == x_t.shape
 
 
+def test_molecular_egnn_denoiser_supports_attention_backbone(denoiser_input):
+    _, h, x_t, t, edge_index, batch = denoiser_input
+    model = MolecularEGNNDenoiser(
+        node_dim=h.shape[-1],
+        hidden_dim=16,
+        message_dim=16,
+        attention=True,
+        attention_dim=16,
+        time_embedding_dim=16,
+        num_layers=2,
+    )
+    model.eval()
+
+    eps_hat = model(h, x_t, t, edge_index, batch=batch)
+
+    assert eps_hat.shape == x_t.shape
+
+
 def test_molecular_egnn_denoiser_validates_constructor_inputs():
     with pytest.raises(ValueError, match="node_dim"):
         MolecularEGNNDenoiser(node_dim=0)
@@ -135,6 +153,9 @@ def test_molecular_egnn_denoiser_validates_constructor_inputs():
 
     with pytest.raises(ValueError, match="message_dim"):
         MolecularEGNNDenoiser(node_dim=4, message_dim=0)
+
+    with pytest.raises(ValueError, match="attention_dim"):
+        MolecularEGNNDenoiser(node_dim=4, attention_dim=0)
 
     with pytest.raises(ValueError, match="time_embedding_dim"):
         MolecularEGNNDenoiser(node_dim=4, time_embedding_dim=0)

@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from equimol.layers.time import TimestepEmbedding
-from equimol.models.backbones import EGNNBackbone
+from equimol.models.backbones import AttentiveEGNNBackbone, EGNNBackbone
 
 # ----------------------------------------
 # Molecular EGNN denoiser.
@@ -25,7 +25,7 @@ from equimol.models.backbones import EGNNBackbone
 #    x_t = sqrt(alpha_bar_t) x_0 + sqrt(1 - alpha_bar_t) eps
 #    tau = phi_t(t)
 #    h_i^0 = phi_h(h_i, tau_batch_i)
-#    h^L, x^L = EGNNBackbone(h^0, x_t, edge_index, edge_attr)
+#    h^L, x^L = EGNNBackbone/AttentiveEGNNBackbone(h^0, x_t, edge_index, edge_attr)
 #    eps_hat_i = gamma(h_i^L) * (x_i^L - x_{t,i})
 #    loss = mean_i ||eps_hat_i - eps_i||^2
 #
@@ -50,6 +50,8 @@ class MolecularEGNNDenoiser(nn.Module):
         hidden_dim: int = 128,
         edge_attr_dim: int = 0,
         message_dim: int = 128,
+        attention: bool = False,
+        attention_dim: int = 128,
         time_embedding_dim: int = 128,
         residual: bool = True,
         dropout: float = 0.0,
@@ -68,6 +70,8 @@ class MolecularEGNNDenoiser(nn.Module):
             raise ValueError(f"edge_attr_dim must be non-negative, got {edge_attr_dim}")
         if message_dim <= 0:
             raise ValueError(f"message_dim must be positive, got {message_dim}")
+        if attention_dim <= 0:
+            raise ValueError(f"attention_dim must be positive, got {attention_dim}")
         if time_embedding_dim <= 0:
             raise ValueError(
                 f"time_embedding_dim must be positive, got {time_embedding_dim}"
@@ -95,17 +99,30 @@ class MolecularEGNNDenoiser(nn.Module):
             nn.Linear(hidden_dim, hidden_dim),
         )
 
-        self.backbone = EGNNBackbone(
-            num_layers=num_layers,
-            hidden_dim=hidden_dim,
-            edge_attr_dim=edge_attr_dim,
-            message_dim=message_dim,
-            residual=residual,
-            update_coords=True,
-            dropout=dropout,
-            coord_step_size=coord_step_size,
-            eps=eps,
-        )
+        if attention:
+            self.backbone = AttentiveEGNNBackbone(
+                num_layers=num_layers,
+                hidden_dim=hidden_dim,
+                edge_attr_dim=edge_attr_dim,
+                message_dim=message_dim,
+                attention_dim=attention_dim,
+                residual=residual,
+                dropout=dropout,
+                coord_step_size=coord_step_size,
+                eps=eps,
+            )
+        else:
+            self.backbone = EGNNBackbone(
+                num_layers=num_layers,
+                hidden_dim=hidden_dim,
+                edge_attr_dim=edge_attr_dim,
+                message_dim=message_dim,
+                residual=residual,
+                update_coords=True,
+                dropout=dropout,
+                coord_step_size=coord_step_size,
+                eps=eps,
+            )
 
         self.output_gate = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
