@@ -1,75 +1,3 @@
-"""VectorEGNN denoiser scaffold.
-
-Goal:
-    Predict coordinate noise for molecule/protein coordinate diffusion using
-    the l = 1 VectorEGNN backbone.
-
-Core contract:
-    h:          [N, F]      invariant node features
-    x_t:        [N, 3]      noisy coordinates
-    t:          [] or [B]   timestep ids
-    edge_index: [2, E]      directed graph edges
-    batch:      [N]         graph ids
-    edge_attr:  [E, A]      optional invariant edge features
-
-Output:
-    eps_hat:    [N, 3]      predicted coordinate noise
-
-Forward diffusion:
-    x_t = sqrt(alpha_bar_t) x_0 + sqrt(1 - alpha_bar_t) eps
-
-Denoising objective:
-    eps_hat = f_theta(h, x_t, t, edge_index, batch, edge_attr)
-    L = mean_i ||eps_hat_i - eps_i||^2
-
-Timestep conditioning:
-    tau_g = TimeEmbedding(t_g)                         [B, H]
-    tau_i = tau_batch_i                                [N, H]
-    h_i^0 = phi_node(concat(phi_h(h_i), tau_i))        [N, H]
-
-VectorEGNN state:
-    scalar state: h^l                                  [N, H]
-    vector state: v^l                                  [N, 3, V]
-    coordinates:  x^l                                  [N, 3]
-
-Initialize:
-    v^0 = 0                                            [N, 3, V]
-    x^0 = x_t
-
-Backbone:
-    h^L, v^L, x^L = VectorEGNNBackbone(h^0, x_t, v^0, edge_index, edge_attr)
-
-Noise head options:
-    Option A:
-        eps_hat = gamma(h^L) * (x^L - x_t)
-
-    Option B:
-        eps_hat = phi_v(v^L)
-        where phi_v maps vector channels [N, 3, V] -> [N, 3]
-
-Equivariance requirement:
-    If x_t -> x_t Q, then eps_hat -> eps_hat Q.
-    If x_t -> x_t + c, then eps_hat should stay unchanged.
-    If nodes are permuted, eps_hat must permute identically.
-
-Data-agnostic point:
-    This class should not know molecule vs protein. The difference lives in:
-        - h
-        - edge_index
-        - edge_attr
-        - batch
-        - node_mask used by the loss
-
-Implementation TODO:
-    1. Mirror EGNNCoordinateDenoiser constructor validation.
-    2. Replace EGNNBackbone with VectorEGNNBackbone.
-    3. Build v0 = zeros [N, 3, vector_dim].
-    4. Reuse timestep broadcast logic from EGNNCoordinateDenoiser.
-    5. Choose the first noise head: gamma(h^L) * (x^L - x_t).
-    6. Add tests for shape, translation invariance, rotation equivariance,
-       permutation equivariance, and edge_attr support.
-"""
-
 from __future__ import annotations
 
 from typing import Optional
@@ -79,6 +7,43 @@ from torch import nn
 
 from equimol.layers.time import TimestepEmbedding
 from equimol.layers.vector_egnn import VectorEGNNBackbone
+
+
+# ----------------------------------------
+# VectorEGNN coordinate denoiser.
+#    - Predict coordinate noise for DDPM-style coordinate diffusion.
+#    - Uses learned l = 1 vector hidden states in the message-passing backbone.
+#
+# Shapes:
+#    h: [N, F] invariant node or atom features.
+#    x_t: [N, 3] noisy coordinates.
+#    t: [] or [B] timestep indices.
+#    edge_index: [2, E] directed edges; row 0 is source, row 1 is target.
+#    batch: optional [N] graph ids.
+#    edge_attr: optional [E, A] invariant edge features.
+#    v: [N, 3, V] learned vector hidden states.
+#    eps_hat: [N, 3] predicted coordinate noise.
+#
+# Mathematics:
+#    x_t = sqrt(alpha_bar_t) x_0 + sqrt(1 - alpha_bar_t) eps
+#    tau = phi_t(t)
+#    h_i^0 = phi_h(h_i, tau_batch_i)
+#    v_i^0 = 0
+#    h^L, v^L, x^L = VectorEGNNBackbone(h^0, x_t, v^0, edge_index, edge_attr)
+#    eps_hat_i = gamma(h_i^L) * (x_i^L - x_{t,i})
+#    loss = mean_i ||eps_hat_i - eps_i||^2
+#
+# Why equivariant:
+#    - Timestep and node features are invariant scalars. Vector states transform
+#      with coordinates, and the output is a scalar-gated coordinate
+#      displacement, so eps_hat rotates/reflections like x_t and is invariant to
+#      global translation.
+#
+# Data contract:
+#    - Molecule/protein differences live in h, edge_index, edge_attr, batch, and
+#      loss masks. The denoiser itself only sees a graph with noisy coordinates.
+# ----------------------------------------
+
 
 class VectorEGNNCoordinateDenoiser(nn.Module):
     """VectorEGNN epsilon-prediction denoiser for coordinate diffusion."""
@@ -274,6 +239,5 @@ class VectorEGNNCoordinateDenoiser(nn.Module):
 
 
 VectorEGNNDenoiser = VectorEGNNCoordinateDenoiser
-
 
 
