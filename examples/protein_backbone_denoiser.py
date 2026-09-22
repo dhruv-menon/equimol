@@ -28,14 +28,28 @@ from equimol.models import EGNNCoordinateDenoiser, VectorEGNNCoordinateDenoiser
 class BackbonePDBDataset(Dataset):
     def __init__(self, pdb_dir: str | Path, limit: int | None = None) -> None:
         pdb_dir = Path(pdb_dir)
-        self.paths = sorted(
+        paths = sorted(
             path for path in pdb_dir.iterdir()
             if path.is_file() and not path.name.startswith(".")
         )
-        if limit is not None:
-            self.paths = self.paths[:limit]
+
+        self.paths = []
+        skipped = 0
+        for path in paths:
+            try:
+                read_backbone_pdb(path)
+            except ValueError:
+                skipped += 1
+                continue
+
+            self.paths.append(path)
+            if limit is not None and len(self.paths) >= limit:
+                break
+
         if not self.paths:
             raise ValueError(f"No PDB-like files found in {pdb_dir}")
+        if skipped:
+            print(f"skipped {skipped} unsupported or invalid PDB files")
 
     def __len__(self) -> int:
         return len(self.paths)
