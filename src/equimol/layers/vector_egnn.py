@@ -22,6 +22,7 @@ class VectorEGNNLayer(nn.Module):
                  vector_dim: int = 64,
                  attention: Optional[bool] = True,
                  attention_dim: Optional[int] = 128,
+                 vector_gate: bool = False,
                  update_coords: bool = True,
                  residual: bool = True,
                  dropout: float = 0.0,
@@ -35,6 +36,7 @@ class VectorEGNNLayer(nn.Module):
         self.squared_distance = PairwiseDistance(squared = True, eps = eps)
         self.distance = PairwiseDistance(squared = False, eps = eps)
         self.attention = attention
+        self.vector_gate = vector_gate
         self.update_coords = update_coords
 
         # compile the edge input dim
@@ -78,6 +80,12 @@ class VectorEGNNLayer(nn.Module):
             nn.SiLU(),
             nn.Linear(vector_dim, vector_dim)
         )
+
+        if vector_gate:
+            self.vector_gate_mlp = nn.Sequential(
+                nn.Linear(hidden_dim, vector_dim),
+                nn.Sigmoid(),
+            )
 
         # MLP for node update
         self.node_mlp = nn.Sequential(
@@ -161,6 +169,8 @@ class VectorEGNNLayer(nn.Module):
 
         delta_v = self.vector_mlp(v)
         v = v + delta_v + aggregated_vector_message if self.residual else delta_v + aggregated_vector_message # [N, D, V]
+        if self.vector_gate:
+            v = v * self.vector_gate_mlp(h).unsqueeze(1) # [N, D, V]
 
         vector_to_scalar = torch.linalg.vector_norm(v, dim = 1) # [N, V]
 
@@ -178,6 +188,7 @@ class VectorEGNNBackbone(nn.Module):
                  vector_dim: int = 64,
                  attention: bool = True,
                  attention_dim: int = 128,
+                 vector_gate: bool = False,
                  update_coords: bool = True,
                  residual: bool = True,
                  dropout: float = 0.0,
@@ -191,6 +202,7 @@ class VectorEGNNBackbone(nn.Module):
                              vector_dim = vector_dim,
                              attention = attention,
                              attention_dim = attention_dim,
+                             vector_gate = vector_gate,
                              update_coords = update_coords,
                              residual = residual,
                              dropout = dropout,
