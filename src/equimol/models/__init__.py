@@ -1,6 +1,7 @@
 """Task-level EGNN model recipes"""
 
 from .denoisers import MolecularEGNNDenoiser
+from .vector_denoisers import VectorEGNNDenoiser
 from .regressors import EGNNRegressor
 from .regressors import AttentiveEGNNRegressor
 from .vector_egnn import VectorEGNNRegressor
@@ -16,4 +17,5 @@ __all__ = [
     "IrrepEGNNRegressor",
     "MolecularEGNNDenoiser",
     "VectorEGNNRegressor",
+    "VectorEGNNDenoiser",
 ]
