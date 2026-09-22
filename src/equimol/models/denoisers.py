@@ -8,35 +8,40 @@ from torch import nn
 from equimol.layers.time import TimestepEmbedding
 from equimol.models.backbones import EGNNBackbone
 
+# ----------------------------------------
+# Molecular EGNN denoiser.
+#    - Predict coordinate noise for DDPM-style coordinate diffusion.
+#
+# Shapes:
+#    h: [N, F] invariant node or atom features.
+#    x_t: [N, 3] noisy coordinates.
+#    t: [] or [B] timestep indices.
+#    edge_index: [2, E] directed edges; row 0 is source, row 1 is target.
+#    batch: optional [N] graph ids.
+#    edge_attr: optional [E, A] invariant edge features.
+#    eps_hat: [N, 3] predicted coordinate noise.
+#
+# Mathematics:
+#    x_t = sqrt(alpha_bar_t) x_0 + sqrt(1 - alpha_bar_t) eps
+#    tau = phi_t(t)
+#    h_i^0 = phi_h(h_i, tau_batch_i)
+#    h^L, x^L = EGNNBackbone(h^0, x_t, edge_index, edge_attr)
+#    eps_hat_i = gamma(h_i^L) * (x_i^L - x_{t,i})
+#    loss = mean_i ||eps_hat_i - eps_i||^2
+#
+# Why equivariant:
+#    - Timestep and node features are invariant scalars. The predicted noise is a
+#      scalar-gated EGNN coordinate displacement, so it transforms like x_t under
+#      rotations/reflections and is invariant to global translations.
+#
+# Data contract:
+#    - Molecule/protein differences live in h, edge_index, edge_attr, batch, and
+#      loss masks. The denoiser itself only sees a graph with noisy coordinates.
+# ----------------------------------------
+
 
 class MolecularEGNNDenoiser(nn.Module):
-    """Predict coordinate noise for molecular DDPM-style denoising.
-
-    Objective:
-        Given noisy coordinates x_t and a timestep t, predict the Gaussian
-        coordinate noise eps used by the forward process.
-
-    Inputs:
-        h: [N, F] invariant node or atom features
-        x_t: [N, D] noisy coordinates
-        t: [] scalar timestep or [B] graph-wise timesteps
-        edge_index: [2, E] directed graph edges
-        batch: [N] graph id per node, or None for one graph
-        edge_attr: [E, A] optional invariant edge features
-
-    Output:
-        eps_hat: [N, D] predicted coordinate noise
-
-    Equations:
-        x_t = sqrt(alpha_bar_t) x_0 + sqrt(1 - alpha_bar_t) eps
-        model(h, x_t, t, edge_index, batch) = eps_hat
-        loss = mean(||eps_hat - eps||^2)
-
-    Equivariance contract:
-        If x_t is rotated or reflected by Q, eps_hat must transform as eps_hat Q.
-        If x_t is translated, eps_hat should not change.
-        If nodes are permuted consistently, eps_hat should permute the same way.
-    """
+    """EGNN epsilon-prediction denoiser for coordinate diffusion."""
 
     def __init__(
         self,
@@ -117,17 +122,7 @@ class MolecularEGNNDenoiser(nn.Module):
         batch: Optional[torch.Tensor] = None,
         edge_attr: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        """
-        TODO:
-                - encode invariant node features to hidden states [N, H]
-                - encode timestep t and broadcast it to nodes using batch
-                - combine node and timestep embeddings without using absolute coordinates
-                - run an EGNNBackbone on h and x_t
-                - convert the equivariant coordinate update into eps_hat [N, D]
-                - optionally gate the coordinate update with invariant scalar node weights
-                - validate output shape and equivariance with tests
-         
-        """
+        """Return predicted coordinate noise eps_hat with shape [N, 3]."""
         if h.ndim != 2:
             raise ValueError(f"h must have shape [N, F], got {tuple(h.shape)}")
         if h.shape[-1] != self.node_dim:
