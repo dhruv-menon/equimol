@@ -389,6 +389,7 @@ def main(argv=None):
     ap.add_argument("--egnn-hidden-dim", type=int, default=128)
     ap.add_argument("--egnn-message-dim", type=int, default=128)
     ap.add_argument("--egnn-vector-dim", type=int, default=64)
+    ap.add_argument("--egnn-vector-gate", action="store_true")
     ap.add_argument("--egnn-attention-dim", type=int, default=128)
     ap.add_argument("--irreps-hidden", type=str, default="64x0e + 32x1o + 16x2e")
     ap.add_argument("--irreps-edge", type=str, default="0e + 1o + 2e")
@@ -510,6 +511,7 @@ def main(argv=None):
             vector_dim=args.egnn_vector_dim,
             attention=True,
             attention_dim=args.egnn_attention_dim,
+            vector_gate=args.egnn_vector_gate,
             dropout=args.egnn_dropout,
             update_coords=False,
             coord_step_size=args.egnn_coord_step_size,
