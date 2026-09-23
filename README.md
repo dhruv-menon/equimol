@@ -10,7 +10,7 @@ E(n)-equivariant neural networks and diffusion models for molecular and protein 
 
 [Documentation](#documentation) | [Examples](#examples) | [Citing](#citing)
 
-`equimol` is a PyTorch-native research toolkit for geometric deep learning over molecular graphs, protein backbones, and trajectories. It includes EGNN-style layers, molecular/protein graph utilities, regression trainers, and coordinate diffusion examples.
+`equimol` is a research library for geometric deep learning over molecular graphs, protein backbones, and trajectories. It includes EGNN-style layers, molecular/protein graph utilities, regression trainers, and coordinate diffusion examples.
 
 ## Example
 
