@@ -1,5 +1,9 @@
 ![equimol banner](assets/figures/equimol%20-%20banner.png)
 
+<p align="center">
+  <img src="assets/figures/protein_backbone_denoising.gif" width="92%" alt="Protein backbone denoising trajectories">
+</p>
+
 # equimol
 
 PyTorch-native E(n)-equivariant neural network building blocks for molecular and protein machine learning.
@@ -28,7 +32,7 @@ If `uv run` reinstalls CPU PyTorch from `uv.lock`, run training with the venv
 Python directly:
 
 ```powershell
-.\.venv\Scripts\python.exe examples/qm9_regression.py --datapath data/qm9 --target mu --epochs 100 --batch-size 128 --eval-every 5 --checkpoint-path checkpoints/qm9/mu_full.pt
+.\.venv\Scripts\python.exe examples/trainers/qm9_regression.py --datapath data/qm9 --target mu --epochs 100 --batch-size 128 --eval-every 5 --checkpoint-path checkpoints/qm9/mu_full.pt
 ```
 
 Run tests:
@@ -40,7 +44,7 @@ uv run pytest -q
 QM9 regression smoke run:
 
 ```bash
-uv run python examples/qm9_regression.py \
+uv run python examples/trainers/qm9_regression.py \
   --datapath data/qm9 \
   --target mu \
   --fast-dev-run \
@@ -55,7 +59,7 @@ uv run python examples/qm9_regression.py \
 MD17 energy regression smoke run:
 
 ```bash
-uv run python examples/md17_regression.py \
+uv run python examples/trainers/md17_regression.py \
   --datapath data/md17 \
   --molecule aspirin \
   --fast-dev-run \

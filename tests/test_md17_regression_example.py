@@ -9,7 +9,7 @@ from equimol.data import build_radial_basis
 from equimol.models import EGNNRegressor
 
 
-_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "examples" / "md17_regression.py"
+_SCRIPT_PATH = Path(__file__).resolve().parents[1] / "examples" / "trainers" / "md17_regression.py"
 _SPEC = importlib.util.spec_from_file_location("md17_regression_example", _SCRIPT_PATH)
 md17_regression = importlib.util.module_from_spec(_SPEC)
 assert _SPEC.loader is not None

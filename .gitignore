@@ -12,6 +12,7 @@ venv/
 /data/cath/
 /checkpoints/
 /figures/
+/outputs/
 /helpers/plotters.py
 
 # Large model/artifact files
