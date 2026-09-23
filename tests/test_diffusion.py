@@ -6,6 +6,7 @@ from equimol.diffusion import (
     center_coordinates,
     coordinate_noise_mse,
     cosine_beta_schedule,
+    ddim_sample_coordinates_step,
     linear_beta_schedule,
     p_sample_coordinates_step,
     q_sample_coordinates,
@@ -470,6 +471,30 @@ def test_p_sample_coordinates_step_validates_inputs():
         p_sample_coordinates_step(model, h, x_t, torch.tensor([0, 1]), schedule, edge_index)
 
 
+def test_ddim_sample_coordinates_step_returns_x0_at_t_zero_for_zero_noise_model():
+    model = ZeroNoiseModel()
+    schedule = DiffusionSchedule(
+        betas=torch.tensor([0.25, 0.5]),
+        alphas=torch.tensor([0.75, 0.5]),
+        alpha_bars=torch.tensor([0.75, 0.375]),
+    )
+    h = torch.randn(3, 4)
+    x_t = torch.randn(3, 3)
+    edge_index = torch.tensor([[0, 1], [1, 2]])
+
+    x_prev = ddim_sample_coordinates_step(
+        model,
+        h,
+        x_t,
+        torch.tensor(0),
+        schedule,
+        edge_index,
+        center=False,
+    )
+
+    assert torch.allclose(x_prev, x_t / torch.sqrt(torch.tensor(0.75)))
+
+
 def test_sample_coordinates_loop_returns_coordinates():
     model = ZeroNoiseModel()
     schedule = linear_beta_schedule(4)
@@ -479,6 +504,35 @@ def test_sample_coordinates_loop_returns_coordinates():
     x = sample_coordinates_loop(model, h, edge_index, schedule)
 
     assert x.shape == (5, 3)
+
+
+def test_sample_coordinates_loop_supports_ddim():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(5, 3)
+    edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
+
+    x = sample_coordinates_loop(model, h, edge_index, schedule, sampler="ddim")
+
+    assert x.shape == (5, 3)
+
+
+def test_sample_coordinates_loop_can_return_trajectory():
+    model = ZeroNoiseModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(5, 3)
+    edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
+
+    trajectory = sample_coordinates_loop(
+        model,
+        h,
+        edge_index,
+        schedule,
+        sampler="ddim",
+        return_trajectory=True,
+    )
+
+    assert trajectory.shape == (5, 5, 3)
 
 
 def test_sample_coordinates_loop_can_center_initial_and_final_coordinates():
@@ -505,3 +559,6 @@ def test_sample_coordinates_loop_validates_inputs():
 
     with pytest.raises(TypeError, match="edge_index"):
         sample_coordinates_loop(model, h, edge_index.float(), schedule)
+
+    with pytest.raises(ValueError, match="sampler"):
+        sample_coordinates_loop(model, h, edge_index, schedule, sampler="bad")

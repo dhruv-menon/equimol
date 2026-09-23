@@ -192,6 +192,78 @@ def p_sample_coordinates_step(
     return center_coordinates(x_prev, batch=batch) if center else x_prev
 
 
+def ddim_sample_coordinates_step(
+    model: nn.Module,
+    h: torch.Tensor,
+    x_t: torch.Tensor,
+    t: torch.Tensor,
+    schedule: DiffusionSchedule,
+    edge_index: torch.Tensor,
+    batch: Optional[torch.Tensor] = None,
+    edge_attr: Optional[torch.Tensor] = None,
+    *,
+    eta: float = 0.0,
+    center: bool = True,
+) -> torch.Tensor:
+    """Sample one reverse DDIM coordinate step."""
+    _validate_graph_inputs(h, edge_index, batch, edge_attr)
+    _validate_schedule(schedule)
+    if eta < 0:
+        raise ValueError(f"eta must be non-negative, got {eta}")
+    if x_t.ndim != 2:
+        raise ValueError(f"x_t must have shape [N, D], got {tuple(x_t.shape)}")
+    if x_t.shape[0] != h.shape[0]:
+        raise ValueError(f"Expected x_t with {h.shape[0]} nodes, got {x_t.shape[0]}")
+    if not torch.is_floating_point(x_t):
+        raise TypeError(f"x_t must be floating point, got {x_t.dtype}")
+    if x_t.device != h.device:
+        raise ValueError("x_t must be on the same device as h")
+
+    t = torch.as_tensor(t, device=h.device)
+    if t.dtype not in (torch.int8, torch.int16, torch.int32, torch.int64, torch.long):
+        raise TypeError(f"t must contain integer timestep indices, got {t.dtype}")
+    t = t.long()
+    node_t = _node_timesteps(t, batch, h.shape[0])
+    if node_t.min() < 0 or node_t.max() >= schedule.betas.shape[0]:
+        raise ValueError("t contains timestep indices outside the schedule range")
+
+    eps_hat = model(
+        h,
+        x_t,
+        t,
+        edge_index,
+        batch=batch,
+        edge_attr=edge_attr,
+    )
+    if eps_hat.shape != x_t.shape:
+        raise ValueError(
+            f"Expected model output with shape {tuple(x_t.shape)}, "
+            f"got {tuple(eps_hat.shape)}"
+        )
+
+    alpha_bars = schedule.alpha_bars.to(device=x_t.device, dtype=x_t.dtype)
+    alpha_bar_t = alpha_bars[node_t].unsqueeze(-1)
+
+    prev_t = node_t - 1
+    alpha_bar_prev = torch.ones_like(alpha_bar_t)
+    has_prev = prev_t >= 0
+    alpha_bar_prev[has_prev] = alpha_bars[prev_t[has_prev]].unsqueeze(-1)
+
+    one_minus_alpha_bar_t = (1.0 - alpha_bar_t).clamp_min(
+        torch.finfo(x_t.dtype).eps
+    )
+    x0_hat = (x_t - one_minus_alpha_bar_t.sqrt() * eps_hat) / alpha_bar_t.sqrt()
+
+    sigma = eta * (
+        ((1.0 - alpha_bar_prev) / one_minus_alpha_bar_t)
+        * (1.0 - alpha_bar_t / alpha_bar_prev).clamp_min(0.0)
+    ).sqrt()
+    direction_scale = (1.0 - alpha_bar_prev - sigma.square()).clamp_min(0.0).sqrt()
+    noise = sample_coordinate_noise(x_t, batch=batch, center=center)
+    x_prev = alpha_bar_prev.sqrt() * x0_hat + direction_scale * eps_hat + sigma * noise
+    return center_coordinates(x_prev, batch=batch) if center else x_prev
+
+
 @torch.no_grad()
 def sample_coordinates_loop(
     model: nn.Module,
@@ -202,7 +274,10 @@ def sample_coordinates_loop(
     edge_attr: Optional[torch.Tensor] = None,
     *,
     coord_dim: int = 3,
+    sampler: str = "ddpm",
+    eta: float = 0.0,
     center: bool = True,
+    return_trajectory: bool = False,
 ) -> torch.Tensor:
     """Run the full reverse coordinate sampling loop.
 
@@ -220,8 +295,7 @@ def sample_coordinates_loop(
 
     Equations:
         - x_T ~ N(0, I)
-        - for t = T - 1, ..., 0:
-            x_{t-1} = p_sample_coordinates_step(model, h, x_t, t, ...)
+        - for t = T - 1, ..., 0, run DDPM or DDIM reverse steps
         - return x_0
 
     """
@@ -234,18 +308,40 @@ def sample_coordinates_loop(
     if center:
         x_t = center_coordinates(x_t, batch=batch)
 
+    if sampler not in {"ddpm", "ddim"}:
+        raise ValueError(f"sampler must be 'ddpm' or 'ddim', got {sampler!r}")
+    trajectory = [x_t.clone()] if return_trajectory else None
+
     for timestep in reversed(range(schedule.betas.shape[0])):
         t = torch.tensor(timestep, device=h.device, dtype=torch.long)
-        x_t = p_sample_coordinates_step(
-            model,
-            h,
-            x_t,
-            t,
-            schedule,
-            edge_index,
-            batch=batch,
-            edge_attr=edge_attr,
-            center=center,
-        )
+        if sampler == "ddpm":
+            x_t = p_sample_coordinates_step(
+                model,
+                h,
+                x_t,
+                t,
+                schedule,
+                edge_index,
+                batch=batch,
+                edge_attr=edge_attr,
+                center=center,
+            )
+        else:
+            x_t = ddim_sample_coordinates_step(
+                model,
+                h,
+                x_t,
+                t,
+                schedule,
+                edge_index,
+                batch=batch,
+                edge_attr=edge_attr,
+                eta=eta,
+                center=center,
+            )
+        if trajectory is not None:
+            trajectory.append(x_t.clone())
 
+    if trajectory is not None:
+        return torch.stack(trajectory, dim=0)
     return x_t
