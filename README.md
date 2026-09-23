@@ -1,3 +1,5 @@
+![equimol banner](assets/figures/equimol%20-%20banner.png)
+
 # equimol
 
 PyTorch-native E(n)-equivariant neural network building blocks for molecular and protein machine learning.
