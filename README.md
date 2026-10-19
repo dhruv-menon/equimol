@@ -78,6 +78,10 @@ Detailed documentation is in progress.
 
 Citation metadata is in progress. For now, cite the repository URL if you use `equimol` in early work.
 
+## License
+
+`equimol` is released under the [Apache License 2.0](LICENSE).
+
 ## References
 
 - Satorras, Hoogeboom, and Welling. E(n) Equivariant Graph Neural Networks.
