@@ -13,6 +13,41 @@ from equimol.layers.distance import PairwiseDistance
 #   - Can implement with or without attention based on the flag passed
 # ----------------------------------------
 
+
+class EquivariantVectorMLP(nn.Module):
+    """Equivariant two-layer MLP over vector channels.
+
+    Shapes:
+        v: [N, D, V] -> [N, D, V]
+
+    Mathematics:
+        u = W_1 v
+        u <- u * sigmoid(phi(||u||))
+        out = W_2 u
+
+    Why equivariant:
+        - W_1 and W_2 mix channels only and have no bias, so they commute with
+          rotations/reflections acting on D. The nonlinearity is a scalar gate
+          computed from invariant norms. A bias or a pointwise activation on the
+          Cartesian components would break equivariance.
+    """
+
+    def __init__(self, vector_dim: int, eps: float = 1e-8) -> None:
+        super().__init__()
+        self.eps = eps
+        self.lin_in = nn.Linear(vector_dim, vector_dim, bias = False)
+        self.gate = nn.Sequential(
+            nn.Linear(vector_dim, vector_dim),
+            nn.Sigmoid(),
+        )
+        self.lin_out = nn.Linear(vector_dim, vector_dim, bias = False)
+
+    def forward(self, v: torch.Tensor) -> torch.Tensor:
+        u = self.lin_in(v) # [N, D, V]
+        norm = torch.sqrt(u.pow(2).sum(dim = 1) + self.eps) # [N, V]; eps keeps the gradient finite at u = 0
+        u = u * self.gate(norm).unsqueeze(1) # [N, D, V]
+        return self.lin_out(u) # [N, D, V]
+
 class VectorEGNNLayer(nn.Module):
     """Single l = 1 vector E(n)-equivariant message passing with edge attention (if passed)"""
     def __init__(self,
@@ -74,12 +109,8 @@ class VectorEGNNLayer(nn.Module):
             nn.Linear(vector_dim, vector_dim)
         )
 
-        # MLP for vector update
-        self.vector_mlp = nn.Sequential(
-            nn.Linear(vector_dim, vector_dim),
-            nn.SiLU(),
-            nn.Linear(vector_dim, vector_dim)
-        )
+        # MLP for vector update (must stay equivariant: no bias, no pointwise activation)
+        self.vector_mlp = EquivariantVectorMLP(vector_dim = vector_dim, eps = eps)
 
         if vector_gate:
             self.vector_gate_mlp = nn.Sequential(
