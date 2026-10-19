@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from equimol.data import ProteinBackboneBatchConfig, prepare_protein_backbone_batch
+from equimol.data import (
+    ProteinBackboneBatchConfig,
+    build_protein_backbone_graph,
+    prepare_protein_backbone_batch,
+)
 from equimol.diffusion import (
     cosine_beta_schedule,
     ddim_sample_coordinates_step,
@@ -55,6 +59,7 @@ def denoise_from_timestep(
     sampler: str,
     eta: float,
     return_trajectory: bool,
+    graph_fn=None,
 ) -> torch.Tensor:
     if sampler not in {"ddpm", "ddim"}:
         raise ValueError(f"Unsupported sampler: {sampler}")
@@ -72,6 +77,7 @@ def denoise_from_timestep(
                 edge_index,
                 batch=batch,
                 edge_attr=edge_attr,
+                graph_fn=graph_fn,
             )
         else:
             x_t = ddim_sample_coordinates_step(
@@ -84,6 +90,7 @@ def denoise_from_timestep(
                 batch=batch,
                 edge_attr=edge_attr,
                 eta=eta,
+                graph_fn=graph_fn,
             )
         if trajectory is not None:
             trajectory.append(x_t.clone())
@@ -346,6 +353,12 @@ def main(argv=None) -> None:
         sampler=args.sampler,
         eta=args.eta,
         return_trajectory=args.gif is not None or args.frames_dir is not None,
+        graph_fn=lambda x: build_protein_backbone_graph(
+            x,
+            geometric_batch.batch,
+            config=protein_config,
+            radial_basis=radial_basis,
+        ),
     )
 
     final_x = trajectory[-1] if trajectory.ndim == 3 else trajectory

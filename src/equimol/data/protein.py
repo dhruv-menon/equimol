@@ -150,6 +150,46 @@ def prepare_protein_backbone_batch(
 
     h = torch.cat(features, dim=-1)
 
+    edge_index, edge_attr = build_protein_backbone_graph(
+        x,
+        batch,
+        config=config,
+        radial_basis=radial_basis,
+    )
+
+    return GeometricBatch(
+        h=h,
+        x=x,
+        edge_index=edge_index,
+        batch=batch,
+        edge_attr=edge_attr,
+        mask=mask,
+    )
+
+
+def build_protein_backbone_graph(
+    x: torch.Tensor,
+    batch: torch.Tensor,
+    config: ProteinBackboneBatchConfig | None = None,
+    radial_basis = None,
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """Build protein backbone edges and edge features from coordinates.
+
+    Shapes:
+        x:          [4R, 3] atom-major coordinates (N, CA, C, O per residue)
+        batch:      [4R]
+        edge_index: [2, E]
+        edge_attr:  [E, A] or None
+
+    Diffusion usage:
+        Radius edges and radial features depend on coordinates. During
+        training and sampling, call this with the noisy coordinates x_t, not
+        the clean x_0; otherwise the model receives the clean distance matrix
+        as an input feature.
+    """
+    config = config or ProteinBackboneBatchConfig()
+    num_nodes = x.shape[0]
+
     if config.graph not in ("backbone", "radius", "backbone_radius"):
         raise ValueError(f"Unsupported protein graph type: {config.graph}")
 
@@ -203,15 +243,8 @@ def prepare_protein_backbone_batch(
             is_backbone = torch.isin(edge_codes, torch.cat(backbone_codes))
         if radius_codes:
             is_radius = torch.isin(edge_codes, torch.cat(radius_codes))
-        edge_attr_parts.append(torch.stack([is_backbone, is_radius], dim=-1).float())
+        edge_attr_parts.append(torch.stack([is_backbone, is_radius], dim=-1).to(x.dtype))
 
     edge_attr = torch.cat(edge_attr_parts, dim=-1) if edge_attr_parts else None
 
-    return GeometricBatch(
-        h=h,
-        x=x,
-        edge_index=edge_index,
-        batch=batch,
-        edge_attr=edge_attr,
-        mask=mask,
-    )
+    return edge_index, edge_attr

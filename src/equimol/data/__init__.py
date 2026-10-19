@@ -16,13 +16,18 @@ from .qm9 import (
     prepare_qm9_batch,
     split_qm9,
 )
-from .protein import ProteinBackboneBatchConfig, prepare_protein_backbone_batch
+from .protein import (
+    ProteinBackboneBatchConfig,
+    build_protein_backbone_graph,
+    prepare_protein_backbone_batch,
+)
 from .types import GeometricBatch
 
 __all__ = [
     "GeometricBatch",
     "MD17_MOLECULES",
     "QM9_TARGETS",
+    "build_protein_backbone_graph",
     "build_radial_basis",
     "compute_energy_stats",
     "compute_target_stats",

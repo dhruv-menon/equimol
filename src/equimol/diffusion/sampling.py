@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 import torch
 from torch import nn
 
 from .corruption import center_coordinates, sample_coordinate_noise
 from .schedules import DiffusionSchedule
+
+# Rebuilds (edge_index, edge_attr) from the current noisy coordinates x_t.
+GraphFn = Callable[[torch.Tensor], tuple[torch.Tensor, Optional[torch.Tensor]]]
 
 
 def _node_timesteps(
@@ -117,6 +120,7 @@ def p_sample_coordinates_step(
     edge_attr: Optional[torch.Tensor] = None,
     *,
     center: bool = True,
+    graph_fn: Optional[GraphFn] = None,
 ) -> torch.Tensor:
     """Sample one reverse DDPM coordinate step.
 
@@ -132,6 +136,9 @@ def p_sample_coordinates_step(
         - edge_index: [2, E]
         - batch: [N] or None
         - edge_attr: [E, A] optional
+        - graph_fn: optional callable x_t -> (edge_index, edge_attr). When
+          given, edges are rebuilt from the current x_t at every step, which
+          is required for coordinate-dependent graphs (radius/kNN/RBF).
         - output: [N, D]
 
     Equations:
@@ -142,6 +149,8 @@ def p_sample_coordinates_step(
         - if t = 0, x_{t-1} = mu_t
 
     """
+    if graph_fn is not None:
+        edge_index, edge_attr = graph_fn(x_t)
     _validate_graph_inputs(h, edge_index, batch, edge_attr)
     _validate_schedule(schedule)
     if x_t.ndim != 2:
@@ -204,8 +213,11 @@ def ddim_sample_coordinates_step(
     *,
     eta: float = 0.0,
     center: bool = True,
+    graph_fn: Optional[GraphFn] = None,
 ) -> torch.Tensor:
     """Sample one reverse DDIM coordinate step."""
+    if graph_fn is not None:
+        edge_index, edge_attr = graph_fn(x_t)
     _validate_graph_inputs(h, edge_index, batch, edge_attr)
     _validate_schedule(schedule)
     if eta < 0:
@@ -278,6 +290,7 @@ def sample_coordinates_loop(
     eta: float = 0.0,
     center: bool = True,
     return_trajectory: bool = False,
+    graph_fn: Optional[GraphFn] = None,
 ) -> torch.Tensor:
     """Run the full reverse coordinate sampling loop.
 
@@ -291,6 +304,9 @@ def sample_coordinates_loop(
         - schedule.betas/alphas/alpha_bars: [T]
         - batch: [N] or None
         - edge_attr: [E, A] optional
+        - graph_fn: optional callable x_t -> (edge_index, edge_attr). When
+          given, edges are rebuilt from the current x_t at every step, which
+          is required for coordinate-dependent graphs (radius/kNN/RBF).
         - output: [N, D]
 
     Equations:
@@ -325,6 +341,7 @@ def sample_coordinates_loop(
                 batch=batch,
                 edge_attr=edge_attr,
                 center=center,
+                graph_fn=graph_fn,
             )
         else:
             x_t = ddim_sample_coordinates_step(
@@ -338,6 +355,7 @@ def sample_coordinates_loop(
                 edge_attr=edge_attr,
                 eta=eta,
                 center=center,
+                graph_fn=graph_fn,
             )
         if trajectory is not None:
             trajectory.append(x_t.clone())

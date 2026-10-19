@@ -12,7 +12,11 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm import tqdm
 
-from equimol.data import ProteinBackboneBatchConfig, prepare_protein_backbone_batch
+from equimol.data import (
+    ProteinBackboneBatchConfig,
+    build_protein_backbone_graph,
+    prepare_protein_backbone_batch,
+)
 from equimol.diffusion import (
     coordinate_noise_mse,
     DiffusionSchedule,
@@ -143,6 +147,14 @@ def train_epoch(
             center = True
         )
 
+        # Rebuild edges from x_t: clean-coordinate edges/RBFs leak the target structure.
+        edge_index, edge_attr = build_protein_backbone_graph(
+            x_t,
+            graph_batch,
+            config=protein_config,
+            radial_basis=radial_basis,
+        )
+
         eps_hat = model(
             h = h,
             x_t = x_t,
@@ -239,6 +251,14 @@ def evaluate(
             batch=graph_batch,
             noise=noise,
             center=True,
+        )
+
+        # Rebuild edges from x_t: clean-coordinate edges/RBFs leak the target structure.
+        edge_index, edge_attr = build_protein_backbone_graph(
+            x_t,
+            graph_batch,
+            config=protein_config,
+            radial_basis=radial_basis,
         )
 
         eps_hat = model(

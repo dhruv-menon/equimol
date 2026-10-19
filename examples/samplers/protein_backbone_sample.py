@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from equimol.data import ProteinBackboneBatchConfig, prepare_protein_backbone_batch
+from equimol.data import (
+    ProteinBackboneBatchConfig,
+    build_protein_backbone_graph,
+    prepare_protein_backbone_batch,
+)
 from equimol.diffusion import (
     cosine_beta_schedule,
     linear_beta_schedule,
@@ -33,8 +37,8 @@ def build_template_backbone(num_residues: int, device: torch.device) -> dict[str
     residue_i = torch.arange(num_residues, device=device, dtype=torch.float32)
     coordinates = torch.zeros((num_residues, 4, 3), device=device)
 
-    # Simple extended backbone template. It defines topology/features only; the
-    # diffusion sampler still starts from Gaussian coordinate noise.
+    # Simple extended backbone template. It defines node features/sizes only;
+    # edges are rebuilt from the noisy coordinates at every sampling step.
     coordinates[:, 0, 0] = 3.8 * residue_i - 1.2  # N
     coordinates[:, 1, 0] = 3.8 * residue_i        # CA
     coordinates[:, 2, 0] = 3.8 * residue_i + 1.5  # C
@@ -75,7 +79,7 @@ def parse_args(argv=None):
     parser.add_argument("--eta", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=42)
 
-    parser.add_argument("--graph", choices=["backbone", "radius", "backbone_radius"], default="backbone")
+    parser.add_argument("--graph", choices=["backbone", "radius", "backbone_radius"], default=None)
     parser.add_argument("--radius", type=float, default=None)
     parser.add_argument("--timesteps", type=int, default=None)
     parser.add_argument("--schedule", choices=["linear", "cosine"], default=None)
@@ -93,7 +97,7 @@ def main(argv=None) -> None:
     train_args = checkpoint.get("args", {})
 
     merged = dict(train_args)
-    merged["graph"] = args.graph
+    merged["graph"] = args.graph if args.graph is not None else train_args.get("graph", "backbone_radius")
     merged["radius"] = args.radius if args.radius is not None else train_args.get("radius", 8.0)
     merged["timesteps"] = args.timesteps if args.timesteps is not None else train_args.get("timesteps", 1000)
     merged["schedule"] = args.schedule if args.schedule is not None else train_args.get("schedule", "linear")
@@ -142,6 +146,12 @@ def main(argv=None) -> None:
         sampler=args.sampler,
         eta=args.eta,
         return_trajectory=args.gif is not None,
+        graph_fn=lambda x: build_protein_backbone_graph(
+            x,
+            batch.batch,
+            config=protein_config,
+            radial_basis=radial_basis,
+        ),
     )
 
     if args.gif is not None:

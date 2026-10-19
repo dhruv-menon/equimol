@@ -562,3 +562,35 @@ def test_sample_coordinates_loop_validates_inputs():
 
     with pytest.raises(ValueError, match="sampler"):
         sample_coordinates_loop(model, h, edge_index, schedule, sampler="bad")
+
+
+class EdgeRecordingModel(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.seen = []
+
+    def forward(self, h, x_t, t, edge_index, batch=None, edge_attr=None):
+        self.seen.append((x_t.clone(), edge_index.clone(), edge_attr.clone()))
+        return torch.zeros_like(x_t)
+
+
+@pytest.mark.parametrize("sampler", ["ddpm", "ddim"])
+def test_sample_coordinates_loop_rebuilds_edges_from_current_x_t(sampler):
+    torch.manual_seed(0)
+    model = EdgeRecordingModel()
+    schedule = linear_beta_schedule(4)
+    h = torch.randn(5, 3)
+    stale_edges = torch.tensor([[0], [1]])
+
+    def graph_fn(x_t):
+        edge_index = torch.tensor([[0, 1, 2, 3], [1, 2, 3, 4]])
+        src, dst = edge_index
+        return edge_index, (x_t[src] - x_t[dst]).norm(dim=-1, keepdim=True)
+
+    sample_coordinates_loop(model, h, stale_edges, schedule, sampler=sampler, graph_fn=graph_fn)
+
+    assert len(model.seen) == 4
+    for x_t, edge_index, edge_attr in model.seen:
+        expected_index, expected_attr = graph_fn(x_t)
+        assert torch.equal(edge_index, expected_index)
+        assert torch.allclose(edge_attr, expected_attr)
