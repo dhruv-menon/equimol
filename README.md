@@ -6,6 +6,9 @@
 
 # equimol
 
+[![tests](https://github.com/dhruv-menon/equimol/actions/workflows/tests.yml/badge.svg)](https://github.com/dhruv-menon/equimol/actions/workflows/tests.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 E(n)-equivariant neural networks and diffusion models for molecular and protein geometry.
 
 [Documentation](#documentation) | [Examples](#examples) | [Citing](#citing)
