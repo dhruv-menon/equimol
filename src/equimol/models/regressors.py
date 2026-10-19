@@ -100,8 +100,9 @@ class EGNNRegressor(nn.Module):
         Returns:
             Tensor with shape [B]"""
 
-        h = self.node_encoder(h.float())
-        x = x.float()
+        dtype = self.node_encoder[0].weight.dtype
+        h = self.node_encoder(h.to(dtype))
+        x = x.to(dtype)
         updated_h, _ = self.egnn(h = h,
                                  x = x,
                                  edge_index = edge_index,
@@ -195,8 +196,9 @@ class AttentiveEGNNRegressor(nn.Module):
         Returns:
             Tensor with shape [B]"""
 
-        h = self.node_encoder(h.float())
-        x = x.float()
+        dtype = self.node_encoder[0].weight.dtype
+        h = self.node_encoder(h.to(dtype))
+        x = x.to(dtype)
         updated_h, _ = self.egnn(h = h,
                                  x = x,
                                  edge_index = edge_index,

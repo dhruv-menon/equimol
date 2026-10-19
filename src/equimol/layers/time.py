@@ -89,4 +89,5 @@ class TimestepEmbedding(nn.Module):
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         """Return learned timestep embeddings."""
-        return self.mlp(self.sinusoidal_embedding(t))
+        embeddings = self.sinusoidal_embedding(t).to(self.mlp[0].weight.dtype)
+        return self.mlp(embeddings)

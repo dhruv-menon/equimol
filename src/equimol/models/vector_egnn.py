@@ -115,8 +115,9 @@ class VectorEGNNRegressor(nn.Module):
         Returns:
             Tensor with shape [B]"""
 
-        h = self.node_encoder(h.float())
-        x = x.float()
+        dtype = self.node_encoder[0].weight.dtype
+        h = self.node_encoder(h.to(dtype))
+        x = x.to(dtype)
         v = torch.zeros(h.size(0), x.size(1), self.vector_dim, device=h.device, dtype=h.dtype)
         h, _, _ = self.egnn(h = h,
                             x = x,

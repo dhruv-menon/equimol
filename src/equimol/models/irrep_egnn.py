@@ -126,7 +126,8 @@ class IrrepEGNNRegressor(nn.Module):
         Returns:
             Tensor with shape [B]"""
 
-        scalar_h = self.node_encoder(h.float())
+        dtype = self.node_encoder[0].weight.dtype
+        scalar_h = self.node_encoder(h.to(dtype))
         h_irrep = torch.zeros(
             h.size(0),
             self.irreps_hidden.dim,
@@ -136,7 +137,7 @@ class IrrepEGNNRegressor(nn.Module):
         h_irrep[:, self.scalar_slice] = scalar_h
         h_irrep = self.backbone(
             h=h_irrep,
-            x=x.float(),
+            x=x.to(dtype),
             edge_index=edge_index,
             edge_attr=edge_attr,
         )
