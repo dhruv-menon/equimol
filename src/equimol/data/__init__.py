@@ -1,11 +1,15 @@
 """Geometric data objects."""
 
 from .md17 import (
+    KCAL_MOL_TO_MEV,
     MD17_MOLECULES,
     compute_energy_stats,
     load_md17,
+    load_rmd17,
     prepare_md17_batch,
+    read_rmd17_split,
     split_md17,
+    split_rmd17,
 )
 from .qm9 import (
     QM9_TARGETS,
@@ -25,6 +29,7 @@ from .types import GeometricBatch
 
 __all__ = [
     "GeometricBatch",
+    "KCAL_MOL_TO_MEV",
     "MD17_MOLECULES",
     "QM9_TARGETS",
     "build_protein_backbone_graph",
@@ -34,10 +39,13 @@ __all__ = [
     "get_qm9_target_index",
     "load_md17",
     "load_qm9",
+    "load_rmd17",
     "prepare_md17_batch",
     "prepare_protein_backbone_batch",
     "prepare_qm9_batch",
     "ProteinBackboneBatchConfig",
+    "read_rmd17_split",
     "split_md17",
     "split_qm9",
+    "split_rmd17",
 ]
