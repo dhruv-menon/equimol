@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
+
+import numpy as np
 
 import torch
 from torch.nn import functional as F
-from torch_geometric.data import Batch
+from torch_geometric.data import Batch, Data
 from torch_geometric.datasets import MD17
 
 from equimol.data.types import GeometricBatch
@@ -40,6 +43,16 @@ MD17_MOLECULES = {
 }
 
 
+def KCAL_MOL_TO_MEV(energy: float | torch.Tensor) -> float | torch.Tensor:
+    """Convert energies (or energy/force errors) from kcal/mol to meV.
+    1 kcal/mol = 43.3641 meV
+    (Returned in the same dtype as the input)
+    """
+    if isinstance(energy, bool) or not isinstance(energy, (int, float, torch.Tensor)):
+        raise TypeError(f"energy must be a number or a tensor, got {type(energy).__name__}")
+    return energy * 43.3641
+
+
 def load_md17(root: str, name: str, train: bool | None = None) -> MD17:
     return MD17(root=root, name=name, train=train)
 
@@ -69,6 +82,149 @@ def split_md17(
     generator = torch.Generator().manual_seed(seed)
     perm = torch.randperm(num_items, generator=generator)
     return perm[:train], perm[train: train + val], perm[train + val:]
+
+
+def read_rmd17_split(
+    splits_dir: str | Path,
+    split: int = 1,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Read one official rMD17 train/test split.
+
+    Files (splits.zip from figshare article 12672038, the rMD17 record):
+        <splits_dir>/index_train_0{split}.csv
+        <splits_dir>/index_test_0{split}.csv
+        one 0-based frame index per line, no header (1000 lines each)
+
+    Args:
+        splits_dir: Directory containing the split CSV files.
+        split: Official split id, one of 1, 2, 3, 4, 5.
+
+    Returns:
+        (train_idx, test_idx), each a 1-D long tensor of frame indices in file
+        order (1000 each for rMD17).
+
+    Raises:
+        ValueError: if split is not in 1..5.
+        FileNotFoundError: if either CSV file is missing.
+        ValueError: if train and test indices overlap (message contains "overlap").
+    """
+    if split not in (1, 2, 3, 4, 5):
+        raise ValueError(f"split must be one of 1..5, got {split}")
+
+    splits_dir = Path(splits_dir)
+    train_file = splits_dir / f"index_train_{split:02d}.csv"
+    test_file = splits_dir / f"index_test_{split:02d}.csv"
+    for file in (train_file, test_file):
+        if not file.is_file():
+            raise FileNotFoundError(f"{file} is not a valid file")
+
+    train_idx = _read_index_file(train_file)
+    test_idx = _read_index_file(test_file)
+
+    overlap = set(train_idx) & set(test_idx)
+    if overlap:
+        raise ValueError(
+            f"overlap between train and test indices ({len(overlap)} shared, "
+            f"e.g. {sorted(overlap)[:5]}), check for data leakage"
+        )
+
+    return (
+        torch.tensor(train_idx, dtype=torch.long),
+        torch.tensor(test_idx, dtype=torch.long),
+    )
+
+
+def _read_index_file(path: Path) -> list[int]:
+    """One integer per line, kept in file order; blank lines are skipped."""
+    with open(path) as f:
+        return [int(line) for line in f if line.strip()]
+
+
+
+def split_rmd17(
+    train_idx: torch.Tensor,
+    num_val: int = 50,
+    seed: int = 42,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Split the official rMD17 training indices into train and validation.
+
+    Protocol (NequIP/MACE): the 1000 official training indices become
+    950 train + 50 validation; the official test indices stay the test set.
+
+    Args:
+        train_idx: Official training indices with shape [M] (M = 1000 for rMD17).
+        num_val: Number of validation indices to hold out.
+        seed: Seed for the random partition.
+
+    Returns:
+        (train_idx, val_idx) with shapes [M - num_val] and [num_val], dtype long.
+        The two are disjoint and together contain every index in train_idx.
+        The same seed gives the same partition; different seeds differ.
+
+    Raises:
+        ValueError: if num_val <= 0 or num_val >= M (train or val would be empty).
+    """
+    num_items = train_idx.numel()
+    if not 0 < num_val < num_items:
+        raise ValueError(
+            f"num_val must be in (0, {num_items}) so train and val are non-empty, got {num_val}"
+        )
+    generator = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(num_items, generator=generator)
+    val = train_idx[perm[:num_val]]
+    train = train_idx[perm[num_val:]]
+    return train, val
+
+
+def load_rmd17(npz_path: str | Path) -> list[Data]:
+    """Load one revised MD17 molecule from its .npz file.
+
+    File (rmd17_<molecule>.npz from figshare article 12672038, the rMD17 record):
+        nuclear_charges: [N]          atomic numbers
+        coords:          [M, N, 3]    Angstrom
+        energies:        [M]          kcal/mol, float64, ~ -4e5 for aspirin
+        forces:          [M, N, 3]    kcal/mol/Angstrom
+        (old_indices, old_energies, old_forces are ignored)
+
+    Returns:
+        A list of M frames, each Data(z, pos, energy, force, energy_offset) with
+            z:             [N]     long
+            pos:           [N, 3]  float32
+            energy:        [1]     float64, kcal/mol, relative to energy_offset
+            force:         [N, 3]  float32
+            energy_offset: [1]     float64, the mean energy subtracted from every frame
+        Frames must work with prepare_md17_batch.
+
+    Precision:
+        float32 spacing at 4e5 is 0.03125 kcal/mol (~1.4 meV), and
+        prepare_md17_batch casts energies to float32. Subtracting the mean in
+        float64 first keeps stored energies small, so differences between
+        frames survive (tested with a 0.004 kcal/mol gap). A constant shift
+        leaves forces, energy differences and MAEs unchanged; the absolute
+        energy is energy + energy_offset.
+    """
+    with np.load(Path(npz_path)) as data:
+        nuclear_charges = data["nuclear_charges"]  # [N]
+        coords = data["coords"]  # [M, N, 3]
+        energies = data["energies"].astype(np.float64)  # [M]
+        forces = data["forces"]  # [M, N, 3]
+
+    energy_offset = torch.tensor([energies.mean()], dtype=torch.float64)
+    z = torch.from_numpy(nuclear_charges).long()
+    pos = torch.from_numpy(coords).float()
+    energy = torch.from_numpy(energies) - energy_offset
+    force = torch.from_numpy(forces).float()
+
+    return [
+        Data(
+            z=z,
+            pos=pos[i],
+            energy=energy[i : i + 1],
+            force=force[i],
+            energy_offset=energy_offset,
+        )
+        for i in range(pos.shape[0])
+    ]
 
 
 def compute_energy_stats(dataset, indices: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
