@@ -1,9 +1,5 @@
 ![equimol banner](assets/figures/equimol%20-%20banner.png)
 
-<p align="center">
-  <img src="assets/figures/protein_backbone_denoising.gif" width="92%" alt="Protein backbone denoising trajectories">
-</p>
-
 # equimol
 
 [![tests](https://github.com/dhruv-menon/equimol/actions/workflows/tests.yml/badge.svg)](https://github.com/dhruv-menon/equimol/actions/workflows/tests.yml)
