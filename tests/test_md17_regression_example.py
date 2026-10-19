@@ -1,3 +1,4 @@
+import pytest
 import importlib.util
 from pathlib import Path
 
@@ -79,3 +80,51 @@ def test_md17_energy_training_functions_run_on_fake_batch():
     assert loss >= 0.0
     assert metrics["energy_mae"] >= 0.0
     assert metrics["force_mae"] >= 0.0
+
+
+def test_md17_evaluate_forces_include_gradient_through_edge_features():
+    # Forces must be -dE/dx through the full model, including the radial edge
+    # features built from positions in prepare_md17_batch.
+    torch.manual_seed(0)
+    device = torch.device("cpu")
+    loader = _fake_md17_loader()
+    radial_basis = build_radial_basis(num_basis=4, cutoff=5.0).to(device)
+    model = EGNNRegressor(
+        node_feat_dim=10,
+        num_layers=1,
+        hidden_dim=16,
+        edge_attr_dim=4,
+        message_dim=16,
+        update_coords=False,
+        pooling="mean",
+    ).to(device).eval()
+    energy_mean, energy_std = torch.tensor(-11.0), torch.tensor(2.0)
+
+    metrics = md17_regression.evaluate(
+        model=model,
+        loader=loader,
+        radial_basis=radial_basis,
+        device=device,
+        energy_mean=energy_mean,
+        energy_std=energy_std,
+        graph_type="fully_connected",
+        num_atom_types=10,
+    )
+
+    batch = next(iter(loader))
+    pos = batch.pos.clone().requires_grad_(True)
+    batch.pos = pos
+    geometric_batch = md17_regression.prepare_md17_batch(
+        data=batch, radial_basis=radial_basis, graph="fully_connected", num_atom_types=10
+    )
+    energy = model(
+        geometric_batch.h,
+        geometric_batch.x,
+        geometric_batch.edge_index,
+        geometric_batch.batch,
+        geometric_batch.edge_attr,
+    ) * energy_std + energy_mean
+    force = -torch.autograd.grad(energy.sum(), pos)[0]
+    expected_force_mae = (force - batch.force).abs().mean().item()
+
+    assert metrics["force_mae"] == pytest.approx(expected_force_mae, rel=1e-5)

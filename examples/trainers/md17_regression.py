@@ -94,6 +94,9 @@ def train_epoch(
     for batch in progress:
         batch = batch.to(device)
         optimizer.zero_grad(set_to_none=True)
+        # Track gradients from the raw positions so forces include the path
+        # through radial/geometry edge features built in prepare_md17_batch.
+        batch.pos = batch.pos.detach().float().requires_grad_(True)
 
         geometric_batch = prepare_md17_batch(
             data = batch,
@@ -109,7 +112,7 @@ def train_epoch(
 
         # ----- Forward pass ------
         h = geometric_batch.h
-        x = geometric_batch.x.detach().requires_grad_(True)
+        x = geometric_batch.x
         edge_index = geometric_batch.edge_index
         graph_batch = geometric_batch.batch
         edge_attr = geometric_batch.edge_attr
@@ -160,6 +163,7 @@ def evaluate(
 
     for batch in tqdm(loader, desc="eval", leave=False):
         batch = batch.to(device)
+        batch.pos = batch.pos.detach().float().requires_grad_(True)
         geometric_batch = prepare_md17_batch(
             data=batch,
             radial_basis=radial_basis,
@@ -172,7 +176,7 @@ def evaluate(
             use_torsion_features=use_torsion_features,
         )
 
-        x = geometric_batch.x.detach().requires_grad_(True)
+        x = geometric_batch.x
         pred_norm = model(
             geometric_batch.h,
             x,
