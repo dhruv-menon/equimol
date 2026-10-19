@@ -1,6 +1,7 @@
 import torch
 import pytest
 
+from equimol.geometry import backbone_atom_index
 from equimol.geometry import backbone_bond_angles
 from equimol.geometry import backbone_bond_lengths
 from equimol.geometry import backbone_geometry
@@ -14,8 +15,12 @@ from equimol.geometry import dihedral_angles_from_index
 from equimol.geometry import dihedral_features_from_index
 from equimol.geometry import infer_covalent_bonds
 from equimol.geometry import molecular_topology_from_geometry
+from equimol.geometry import protein_backbone_angle_index
+from equimol.geometry import protein_backbone_bond_index
+from equimol.geometry import protein_backbone_topology
+from equimol.geometry import protein_backbone_torsion_index
 from equimol.utils import random_rotation, rotate, squared_distances, translate
-from equimol.graphs import fully_connected_edges
+from equimol.graphs import backbone_atom_bond_graph, fully_connected_edges
 
 pytestmark = pytest.mark.geometry
 
@@ -376,3 +381,85 @@ def test_backbone_geometry_validates_coordinate_shape():
 
     with pytest.raises(ValueError, match="backbone coordinates"):
         backbone_torsions(torch.randn(4, 4, 2))
+
+
+# ----- protein backbone topology -----
+
+def _random_backbone(num_residues: int) -> torch.Tensor:
+    torch.manual_seed(0)
+    return torch.randn(num_residues, 4, 3, dtype=torch.float64)
+
+
+def test_backbone_atom_index_maps_residues_to_flat_atom_ids():
+    residues = torch.tensor([0, 2, 5])
+
+    assert torch.equal(backbone_atom_index(residues, 0), torch.tensor([0, 8, 20]))
+    assert torch.equal(backbone_atom_index(residues, 3), torch.tensor([3, 11, 23]))
+
+
+def test_backbone_atom_index_validates_inputs():
+    with pytest.raises(ValueError, match="atom_offset"):
+        backbone_atom_index(torch.tensor([0]), 4)
+    with pytest.raises(TypeError):
+        backbone_atom_index(torch.tensor([0.0]), 1)
+    with pytest.raises(ValueError, match="negative"):
+        backbone_atom_index(torch.tensor([-1]), 1)
+
+
+@pytest.mark.parametrize("num_residues", [0, 1, 5])
+@pytest.mark.parametrize("directed", [True, False])
+def test_protein_backbone_bond_index_matches_backbone_bond_graph(num_residues, directed):
+    bonds = protein_backbone_bond_index(num_residues, directed=directed)
+    graph = backbone_atom_bond_graph(num_residues, directed=directed)
+
+    assert bonds.dtype == torch.long
+    assert torch.equal(bonds, graph)
+
+
+def test_protein_backbone_bond_index_bond_lengths_match_backbone_geometry():
+    coordinates = _random_backbone(6)
+    src, dst = protein_backbone_bond_index(6, directed=False)
+    flat = coordinates.reshape(-1, 3)
+    lengths = backbone_bond_lengths(coordinates)
+
+    expected = torch.cat([lengths["n_ca"], lengths["ca_c"], lengths["c_o"], lengths["c_n_next"]])
+    assert torch.allclose((flat[src] - flat[dst]).norm(dim=-1), expected, atol=1e-6)
+
+
+@pytest.mark.parametrize("num_residues", [1, 2, 7])
+def test_protein_backbone_angle_index_matches_backbone_bond_angles(num_residues):
+    coordinates = _random_backbone(num_residues)
+    angle_index = protein_backbone_angle_index(num_residues)
+    angles = backbone_bond_angles(coordinates)
+
+    expected = torch.cat([angles["n_ca_c"], angles["ca_c_o"], angles["ca_c_n_next"], angles["c_n_next_ca_next"]])
+    assert angle_index.shape == (3, 2 * num_residues + 2 * (num_residues - 1))
+    assert torch.allclose(bond_angles_from_index(coordinates.reshape(-1, 3), angle_index), expected)
+
+
+@pytest.mark.parametrize("num_residues", [1, 2, 7])
+def test_protein_backbone_torsion_index_matches_backbone_torsions(num_residues):
+    coordinates = _random_backbone(num_residues)
+    torsion_index = protein_backbone_torsion_index(num_residues)
+    torsions = backbone_torsions(coordinates)
+
+    expected = torch.cat([torsions["phi"], torsions["psi"], torsions["omega"]])
+    assert torsion_index.shape == (4, 3 * (num_residues - 1))
+    assert torch.allclose(dihedral_features_from_index(coordinates.reshape(-1, 3), torsion_index), expected)
+
+
+def test_protein_backbone_topology_handles_empty_and_single_residue():
+    empty = protein_backbone_topology(0)
+    single = protein_backbone_topology(1, directed=False)
+
+    assert empty.bond_index.shape == (2, 0)
+    assert empty.angle_index.shape == (3, 0)
+    assert empty.torsion_index.shape == (4, 0)
+    assert single.bond_index.shape == (2, 3)
+    assert single.angle_index.shape == (3, 2)
+    assert single.torsion_index.shape == (4, 0)
+
+
+def test_protein_backbone_topology_validates_num_residues():
+    with pytest.raises(ValueError, match="non-negative"):
+        protein_backbone_topology(-1)
