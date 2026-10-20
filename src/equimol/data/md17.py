@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Literal
 
 import numpy as np
-
 import torch
 from torch.nn import functional as F
 from torch_geometric.data import Batch, Data
@@ -19,7 +18,6 @@ from equimol.features import (
 from equimol.geometry import molecular_topology_from_geometry
 from equimol.graphs import fully_connected_edges, knn_graph, radius_graph
 from equimol.layers import GaussianRadialBasis
-
 
 GraphType = Literal["fully_connected", "knn", "radius"]
 
