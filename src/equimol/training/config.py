@@ -44,8 +44,15 @@ class TrainerConfig:
         Also normalise checkpoint_path to a Path here, so the Trainer can rely
         on it. (Tests: test_trainer_config_rejects_invalid_values)
         """
-        # TODO: implement the checks above.
-        raise NotImplementedError
+        if self.epochs <= 0:
+            raise ValueError(f"epochs must be positive, got {self.epochs}")
+        if self.eval_every <= 0:
+            raise ValueError(f"eval_every must be positive, got {self.eval_every}")
+        if self.grad_clip is not None and self.grad_clip <= 0:
+            raise ValueError(f"if grad_clip is enabled, it must be positive, got {self.grad_clip}")
+        if self.ema_decay is not None and not 0 < self.ema_decay < 1:
+            raise ValueError(f"if ema_decay is enabled, it must be in (0, 1), got {self.ema_decay}")
+        self.checkpoint_path = Path(self.checkpoint_path)
 
 
 @dataclass

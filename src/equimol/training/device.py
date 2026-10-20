@@ -23,5 +23,12 @@ def to_device(batch: Any, device: torch.device | str) -> Any:
     objects you might meet do both (a tensor subclass, a PyG Batch). Decide
     which test runs first so each type takes the branch you intend.
     """
-    # TODO: implement. Tests: tests/test_training.py::test_to_device_*
-    raise NotImplementedError
+    if isinstance(batch, torch.Tensor):
+        return batch.to(device)
+    if isinstance(batch, dict):
+        return {k: to_device(v, device) for k, v in batch.items()}
+    if isinstance(batch, (list, tuple)):
+        return type(batch)(to_device(item, device) for item in batch)
+    if hasattr(batch, "to"):
+        return batch.to(device)
+    return batch

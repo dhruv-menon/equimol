@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 from typing import Any
 
@@ -66,19 +67,36 @@ class Trainer:
             5. Paths: best = Path(config.checkpoint_path),
                last = best.with_suffix(".last.pt").
         """
-        # TODO: implement.
-        raise NotImplementedError
+        self.model = model
+        self.optimizer = optimizer
+        self.config = config
+        self.task = task
+        self.scheduler = scheduler
+
+        self.device = torch.device(device) if device is not None else torch.device("cpu")
+        self.metadata = metadata if metadata is not None else {}
+
+        if self.config.ema_decay is not None:
+            self.ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay))
+        else:
+            self.ema = None
+
+        self.best = Path(config.checkpoint_path)
+        self.last = self.best.with_suffix(".last.pt")
 
     @property
     def eval_model(self) -> nn.Module:
         """The weights to validate/test with: the EMA copy (self.ema.module)
         when EMA is on, otherwise self.model itself (same object)."""
-        # TODO: implement.
-        raise NotImplementedError
+        return self.ema.module if self.ema is not None else self.model
 
     # ----- public API -----
 
-    def fit(self, train_loader: Any, val_loader: Any, resume_from: str | Path | None = None) -> FitResult:
+    def fit(self, 
+            train_loader: Any, 
+            val_loader: Any, 
+            resume_from: str | Path | None = None
+            ) -> FitResult:
         """Train for config.epochs epochs, validating and checkpointing.
 
         Steps:
@@ -108,8 +126,44 @@ class Trainer:
         validations. isinstance(self.scheduler, ReduceLROnPlateau) tells
         them apart.
         """
-        # TODO: implement.
-        raise NotImplementedError
+        self.best.parent.mkdir(parents=True, exist_ok=True)
+
+        if resume_from is None:
+            best_metric = float("inf")
+            best_epoch = 0
+            history = []
+            start_epoch = 0
+        else:
+            ckpt = self._load_state(resume_from)
+            start_epoch = ckpt["epoch"]
+            best_metric = ckpt["best_metric"]
+            best_epoch = ckpt["best_epoch"]
+            history = list(ckpt["history"])
+
+        name = self.config.select_metric
+        for epoch in range(start_epoch + 1, self.config.epochs + 1):
+            train_loss = self._train_epoch(train_loader)
+            if self.scheduler is not None and not isinstance(self.scheduler, ReduceLROnPlateau):
+                self.scheduler.step()
+
+            if epoch % self.config.eval_every != 0 and epoch != self.config.epochs:
+                continue
+
+            metrics = self._validate(val_loader)
+            if name not in metrics:
+                raise ValueError(f"select_metric {name!r} not in validation metrics {sorted(metrics)}")
+            value = metrics[name]
+            if isinstance(self.scheduler, ReduceLROnPlateau):
+                self.scheduler.step(value)
+
+            history.append({"epoch": epoch, "train_loss": train_loss, **metrics})
+            if value < best_metric:
+                best_metric = value
+                best_epoch = epoch
+                torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.best)
+            torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.last)
+
+        return FitResult(best_metric=best_metric, best_epoch=best_epoch, history=history)
 
     def test(self, loader: Any) -> dict[str, float]:
         """Evaluate the BEST checkpoint (not the in-memory weights) on loader.
@@ -124,8 +178,11 @@ class Trainer:
                was a bug in the example trainers).
             4. Return metrics.
         """
-        # TODO: implement.
-        raise NotImplementedError
+        checkpoint = self._load_state(self.best, restore_optimizer=False)
+        metrics = self._validate(loader)
+        checkpoint["test_metrics"] = metrics
+        torch.save(checkpoint, self.best)
+        return metrics
 
     # ----- internals -----
 
@@ -145,25 +202,56 @@ class Trainer:
         Accumulate loss.item() (a float), not the tensor, or every batch's
         graph stays alive.
         """
-        # TODO: implement.
-        raise NotImplementedError
+        self.model.train()
+        total_loss = 0.0
+        num_batches = 0
+        for batch in loader:
+            batch = to_device(batch, device=self.device)
+            self.optimizer.zero_grad(set_to_none=True)
+            loss = self.task.loss(self.model, batch)
+            loss.backward()
+            if self.config.grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config.grad_clip)
+            self.optimizer.step()
+            if self.ema is not None:
+                self.ema.update_parameters(self.model)
+            total_loss += loss.item()
+            num_batches += 1
+
+        if num_batches == 0:
+            raise ValueError("train loader is empty; cannot train an epoch with no batches")
+        return total_loss / num_batches
 
     def _validate(self, loader: Any) -> dict[str, float]:
         """eval_model.eval(), then return self.task.evaluate(eval_model, loader, device).
 
         Do not wrap this in torch.no_grad(): energy/force tasks need autograd
         to compute forces. Tasks that don't need gradients use no_grad
-        themselves.
-        """
-        # TODO: implement.
-        raise NotImplementedError
+        themselves."""
+        eval_model = self.eval_model
+        eval_model.eval()
+        return self.task.evaluate(eval_model, loader=loader, device=self.device)
 
     def _checkpoint_state(self, epoch: int, best_metric: float, best_epoch: int, history: list[dict]) -> dict:
         """Build the checkpoint dict with exactly the keys listed in the class
         docstring. Copy history (list(history)) so later appends don't mutate
         a dict you already saved. test_metrics starts as None."""
-        # TODO: implement.
-        raise NotImplementedError
+        config = dataclasses.asdict(self.config)
+        config["checkpoint_path"] = str(self.config.checkpoint_path)
+        return {
+            "model": self.model.state_dict(),
+            "optimizer": self.optimizer.state_dict(),
+            "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
+            "ema": self.ema.module.state_dict() if self.ema is not None else None,
+            "epoch": epoch,
+            "best_metric": best_metric,
+            "best_epoch": best_epoch,
+            "select_metric": self.config.select_metric,
+            "history": list(history),
+            "config": config,
+            "metadata": self.metadata,
+            "test_metrics": None,
+        }
 
     def _load_state(self, path: str | Path, restore_optimizer: bool = True) -> dict:
         """Load a checkpoint and restore weights (and training state).
@@ -184,5 +272,15 @@ class Trainer:
             5. Return ckpt (fit() reads epoch/best/history from it; test()
                writes test_metrics into it).
         """
-        # TODO: implement.
-        raise NotImplementedError
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"Checkpoint not found at {path}")
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
+        self.model.load_state_dict(checkpoint["model"])
+        if self.ema is not None and checkpoint["ema"] is not None:
+            self.ema.module.load_state_dict(checkpoint["ema"])
+            self.ema.n_averaged.fill_(1)
+        if restore_optimizer:
+            self.optimizer.load_state_dict(checkpoint["optimizer"])
+            if self.scheduler is not None and checkpoint["scheduler"] is not None:
+                self.scheduler.load_state_dict(checkpoint["scheduler"])
+        return checkpoint
