@@ -52,5 +52,6 @@ markers = [
     "radial: radial distance expansion tests",
     "regressor: graph-level EGNN regressor tests",
     "time: timestep embedding layer tests",
+    "tasks: training task (loss and metrics) tests",
     "training: task-agnostic training loop tests",
 ]
