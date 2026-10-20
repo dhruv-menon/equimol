@@ -10,15 +10,12 @@ indices as the test set, and test MAEs reported in meV and meV/A.
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
-from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
-
 from torch_geometric.loader import DataLoader
-from tqdm import tqdm
 
 from equimol.data import (
     KCAL_MOL_TO_MEV,
@@ -31,9 +28,14 @@ from equimol.data import (
     split_md17,
     split_rmd17,
 )
-
-from equimol.models import AttentiveEGNNRegressor, EGNNRegressor, IrrepEGNNRegressor, VectorEGNNRegressor
-from equimol.layers import GaussianRadialBasis
+from equimol.models import (
+    AttentiveEGNNRegressor,
+    EGNNRegressor,
+    IrrepEGNNRegressor,
+    VectorEGNNRegressor,
+)
+from equimol.tasks import EnergyForceTask
+from equimol.training import Trainer, TrainerConfig
 
 
 def set_seed(seed: int) -> None:
@@ -95,360 +97,6 @@ def subset_dataset(dataset, indices: torch.Tensor):
     if isinstance(dataset, list):
         return [dataset[int(i)] for i in indices]
     return dataset[indices.tolist()]
-
-def calculate_force(
-    energy: torch.Tensor,
-    x: torch.Tensor,
-    *,
-    create_graph: bool,
-) -> torch.Tensor:
-    return -torch.autograd.grad(
-        energy.sum(),
-        x,
-        create_graph=create_graph,
-    )[0]
-
-
-def mse_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    return nn.MSELoss()(pred, target)
-
-
-def l1_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    return nn.L1Loss()(pred, target)
-
-
-def train_epoch(
-        model: EGNNRegressor,
-        optimizer: torch.optim.Optimizer,
-        loader: DataLoader,
-        radial_basis: GaussianRadialBasis,
-        device: torch.device,
-        energy_mean: torch.Tensor,
-        energy_std: torch.Tensor,
-        graph_type: str = "radius",
-        num_atom_types: int = 100,
-        radius: float | None = 5.0,
-        k: int | None = None,
-        lambda_energy: float = 1.0,
-        lambda_force: float = 1.0,
-        grad_clip: float | None = 1.0,
-        use_bond_features: bool = False,
-        use_angle_features: bool = False,
-        use_torsion_features: bool = False,
-        ema: AveragedModel | None = None,
-        ) -> float:
-
-    epoch_loss = 0.
-    batch_count = 0
-
-    model.train()
-    progress = tqdm(loader, desc="train", leave=False)
-    for batch in progress:
-        batch = batch.to(device)
-        optimizer.zero_grad(set_to_none=True)
-        # Track gradients from the raw positions so forces include the path
-        # through radial/geometry edge features built in prepare_md17_batch.
-        batch.pos = batch.pos.detach().float().requires_grad_(True)
-
-        geometric_batch = prepare_md17_batch(
-            data = batch,
-            radial_basis = radial_basis,
-            graph = graph_type,
-            num_atom_types = num_atom_types,
-            radius = radius,
-            k = k,
-            use_bond_features=use_bond_features,
-            use_angle_features=use_angle_features,
-            use_torsion_features=use_torsion_features,
-            )
-
-        # ----- Forward pass ------
-        h = geometric_batch.h
-        x = geometric_batch.x
-        edge_index = geometric_batch.edge_index
-        graph_batch = geometric_batch.batch
-        edge_attr = geometric_batch.edge_attr
-        target_energy = geometric_batch.y
-        target_force = geometric_batch.force
-
-        pred = model(h, x, edge_index, graph_batch, edge_attr)
-        pred_energy = pred * energy_std.to(device) + energy_mean.to(device)
-        pred_force = calculate_force(pred_energy, x, create_graph=True)
-
-        target_norm = (target_energy - energy_mean.to(device)) / energy_std.to(device)
-        energy_loss = mse_loss(pred, target_norm)
-        # Forces are -dE/dx, so they share the energy scale: measuring both
-        # errors in units of energy_std keeps the loss independent of units.
-        force_loss = l1_loss(pred_force / energy_std.to(device), target_force / energy_std.to(device))
-        loss = lambda_energy * energy_loss + lambda_force * force_loss
-        loss.backward()
-        if grad_clip is not None and grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-        optimizer.step()
-        if ema is not None:
-            ema.update_parameters(model)
-
-        epoch_loss = epoch_loss + loss.detach().item()
-        batch_count = batch_count + 1
-        progress.set_postfix(loss=epoch_loss / batch_count)
-
-    if batch_count == 0:
-        raise ValueError("train loader is empty")
-    return epoch_loss / batch_count
-
-def evaluate(
-    model: EGNNRegressor,
-    loader: DataLoader,
-    radial_basis: GaussianRadialBasis,
-    device: torch.device,
-    energy_mean: torch.Tensor,
-    energy_std: torch.Tensor,
-    graph_type: str = "radius",
-    num_atom_types: int = 100,
-    radius: float | None = 5.0,
-    k: int | None = None,
-    use_bond_features: bool = False,
-    use_angle_features: bool = False,
-    use_torsion_features: bool = False,
-) -> dict[str, float]:
-    model.eval()
-    total_energy_abs_error = 0.0
-    total_force_abs_error = 0.0
-    total_graphs = 0
-    total_force_values = 0
-
-    for batch in tqdm(loader, desc="eval", leave=False):
-        batch = batch.to(device)
-        batch.pos = batch.pos.detach().float().requires_grad_(True)
-        geometric_batch = prepare_md17_batch(
-            data=batch,
-            radial_basis=radial_basis,
-            graph=graph_type,
-            num_atom_types=num_atom_types,
-            radius=radius,
-            k=k,
-            use_bond_features=use_bond_features,
-            use_angle_features=use_angle_features,
-            use_torsion_features=use_torsion_features,
-        )
-
-        x = geometric_batch.x
-        pred_norm = model(
-            geometric_batch.h,
-            x,
-            geometric_batch.edge_index,
-            geometric_batch.batch,
-            geometric_batch.edge_attr,
-        )
-        target_energy = geometric_batch.y
-        target_force = geometric_batch.force
-        pred_energy = pred_norm * energy_std.to(device) + energy_mean.to(device)
-        pred_force = calculate_force(pred_energy, x, create_graph=False)
-
-        total_energy_abs_error += (pred_energy - target_energy).abs().sum().item()
-        total_force_abs_error += (pred_force - target_force).abs().sum().item()
-        total_graphs += target_energy.numel()
-        total_force_values += target_force.numel()
-
-    if total_graphs == 0:
-        raise ValueError("evaluation loader is empty")
-    if total_force_values == 0:
-        raise ValueError("evaluation force target is empty")
-    return {
-        "energy_mae": total_energy_abs_error / total_graphs,
-        "force_mae": total_force_abs_error / total_force_values,
-    }
-	    
-
-def trainer(
-        model: EGNNRegressor,
-        optimizer: torch.optim.Optimizer,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
-        test_loader: DataLoader,
-        radial_basis: GaussianRadialBasis,
-        device: torch.device,
-        energy_mean: torch.Tensor,
-        energy_std: torch.Tensor,
-        epochs: int,
-        checkpoint_path: str,
-        metadata: dict | None = None,
-        graph_type: str = "radius",
-        num_atom_types: int = 100,
-        radius: float | None = 5.0,
-        k: int | None = None,
-        eval_every: int = 20,
-        lambda_energy: float = 1.0,
-        lambda_force: float = 1.0,
-        grad_clip: float | None = 1.0,
-        use_bond_features: bool = False,
-        use_angle_features: bool = False,
-        use_torsion_features: bool = False,
-        resume_from_checkpoint: str | None = None,
-        select_metric: str = "force",
-        scheduler: optim.lr_scheduler.ReduceLROnPlateau | None = None,
-        ema_decay: float | None = None,
-        ):
-    """Train, keep the best checkpoint by validation `select_metric` MAE, and
-    evaluate it on the test set.
-
-    scheduler is stepped on the selected validation MAE after each validation.
-    With ema_decay, an exponential moving average of the weights is used for
-    validation and test; checkpoint["model"] holds the raw weights and
-    checkpoint["ema"] the averaged ones.
-
-    Returns (best selected val MAE, test_energy_mae, test_force_mae).
-    """
-
-    if eval_every <= 0:
-        raise ValueError(f"eval_every must be positive, got {eval_every}")
-    if select_metric not in ("energy", "force"):
-        raise ValueError(f"select_metric must be 'energy' or 'force', got {select_metric!r}")
-    if ema_decay is not None and not 0.0 < ema_decay < 1.0:
-        raise ValueError(f"ema_decay must be in (0, 1), got {ema_decay}")
-
-    ema = None
-    if ema_decay is not None:
-        ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
-    # Weights used for validation and test.
-    eval_model = ema.module if ema is not None else model
-
-    checkpoint_path = Path(checkpoint_path)
-    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-    last_checkpoint_path = checkpoint_path.with_suffix(".last.pt")
-    best_val_mae = float("inf")
-    history = []
-    start_epoch = 0
-
-    if resume_from_checkpoint is not None:
-        resume_checkpoint = torch.load(resume_from_checkpoint, map_location=device)
-        model.load_state_dict(resume_checkpoint["model"])
-        if "optimizer" in resume_checkpoint:
-            optimizer.load_state_dict(resume_checkpoint["optimizer"])
-        start_epoch = int(resume_checkpoint.get("epoch", 0))
-        best_val_mae = float(resume_checkpoint.get("best_val_mae", best_val_mae))
-        history = list(resume_checkpoint.get("history", []))
-        if scheduler is not None and resume_checkpoint.get("scheduler") is not None:
-            scheduler.load_state_dict(resume_checkpoint["scheduler"])
-        if ema is not None and resume_checkpoint.get("ema") is not None:
-            ema.module.load_state_dict(resume_checkpoint["ema"])
-            # AveragedModel copies the weights on its first update; mark the
-            # average as initialised so resuming continues it instead.
-            ema.n_averaged.fill_(1)
-        print(f"resumed_from={resume_from_checkpoint} start_epoch={start_epoch}")
-
-    for epoch_idx in range(start_epoch + 1, epochs + 1):
-        loss = train_epoch(
-            model = model, 
-            optimizer = optimizer,
-            loader = train_loader,
-            radial_basis = radial_basis,
-            device = device, 
-            energy_mean = energy_mean,
-            energy_std = energy_std, 
-            graph_type = graph_type, 
-            num_atom_types = num_atom_types,
-            radius = radius,
-            k = k,
-            lambda_energy=lambda_energy,
-            lambda_force=lambda_force,
-            grad_clip=grad_clip,
-            use_bond_features=use_bond_features,
-            use_angle_features=use_angle_features,
-            use_torsion_features=use_torsion_features,
-            ema=ema)
-
-        if epoch_idx % eval_every == 0 or epoch_idx == epochs:
-            val_metrics = evaluate(
-                model=eval_model,
-                loader=val_loader,
-                radial_basis=radial_basis,
-                device=device,
-                energy_mean=energy_mean,
-                energy_std=energy_std,
-                graph_type=graph_type,
-                num_atom_types=num_atom_types,
-                radius=radius,
-                k=k,
-                use_bond_features=use_bond_features,
-                use_angle_features=use_angle_features,
-                use_torsion_features=use_torsion_features,
-            )
-            val_energy_mae = val_metrics["energy_mae"]
-            val_force_mae = val_metrics["force_mae"]
-            val_selected_mae = val_metrics[f"{select_metric}_mae"]
-            if scheduler is not None:
-                scheduler.step(val_selected_mae)
-            print(
-                f"epoch={epoch_idx:03d} train_loss={loss:.6g} "
-                f"val_energy_mae={val_energy_mae:.6g} val_force_mae={val_force_mae:.6g} "
-                f"lr={optimizer.param_groups[0]['lr']:.3g}"
-            )
-            history.append(
-                {
-                    "epoch": epoch_idx,
-                    "train_loss": loss,
-                    "val_energy_mae": val_energy_mae,
-                    "val_force_mae": val_force_mae,
-                }
-            )
-            checkpoint = {
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "epoch": epoch_idx,
-                "best_val_mae": best_val_mae,
-                "energy_mean": energy_mean,
-                "energy_std": energy_std,
-                "history": history,
-                "test_energy_mae": None,
-                "test_force_mae": None,
-                "metadata": metadata or {},
-                "select_metric": select_metric,
-                "scheduler": scheduler.state_dict() if scheduler is not None else None,
-                "ema": ema.module.state_dict() if ema is not None else None,
-            }
-
-            if val_selected_mae < best_val_mae:
-                best_val_mae = val_selected_mae
-                checkpoint["best_val_mae"] = best_val_mae
-                torch.save(checkpoint, checkpoint_path)
-
-            checkpoint["best_val_mae"] = best_val_mae
-            torch.save(checkpoint, last_checkpoint_path)
-
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model"])
-    if ema is not None:
-        ema.module.load_state_dict(checkpoint["ema"])
-    test_metrics = evaluate(
-        model=eval_model,
-        loader=test_loader,
-        radial_basis=radial_basis,
-        device=device,
-        energy_mean=energy_mean,
-        energy_std=energy_std,
-        graph_type=graph_type,
-        num_atom_types=num_atom_types,
-        radius=radius,
-        k=k,
-        use_bond_features=use_bond_features,
-        use_angle_features=use_angle_features,
-        use_torsion_features=use_torsion_features,
-    )
-    test_energy_mae = test_metrics["energy_mae"]
-    test_force_mae = test_metrics["force_mae"]
-    checkpoint["history"] = history
-    checkpoint["test_energy_mae"] = test_energy_mae
-    checkpoint["test_force_mae"] = test_force_mae
-    checkpoint["best_val_mae"] = best_val_mae
-    torch.save(checkpoint, checkpoint_path)
-    torch.save(checkpoint, last_checkpoint_path)
-    print(
-        f"best_val_{select_metric}_mae={best_val_mae:.6g} "
-        f"test_energy_mae={test_energy_mae:.6g} test_force_mae={test_force_mae:.6g}"
-    )
-    return best_val_mae, test_energy_mae, test_force_mae
-
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Trainer for MD17 energy regression using equimol")
@@ -725,35 +373,57 @@ def run_split(
     metadata = vars(args).copy()
     metadata["checkpoint_path"] = checkpoint_path
 
-    return trainer(
-        model=model,
-        optimizer=optimizer,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        test_loader=test_loader,
+    # The task turns batches into graphs with these settings; energies,
+    # forces, loss and metrics live in EnergyForceTask, the loop in Trainer.
+    featurize = partial(
+        prepare_md17_batch,
         radial_basis=edge_featurizer,
-        device=device,
-        energy_mean=energy_mean,
-        energy_std=energy_std,
-        epochs=args.epochs,
-        checkpoint_path=checkpoint_path,
-        metadata=metadata,
-        graph_type=args.graph,
+        graph=args.graph,
         num_atom_types=args.num_atom_types,
         radius=args.radius,
         k=args.k,
-        eval_every=args.eval_every,
-        lambda_energy=args.lambda_energy,
-        lambda_force=args.lambda_force,
-        grad_clip=args.grad_clip,
         use_bond_features=args.use_bond_features,
         use_angle_features=args.use_angle_features,
         use_torsion_features=args.use_torsion_features,
-        resume_from_checkpoint=args.resume_from_checkpoint,
-        select_metric=args.select_metric,
-        scheduler=scheduler,
+    )
+    task = EnergyForceTask(
+        featurize, energy_mean, energy_std, lambda_energy=args.lambda_energy, lambda_force=args.lambda_force
+    )
+    config = TrainerConfig(
+        epochs=args.epochs,
+        checkpoint_path=checkpoint_path,
+        eval_every=args.eval_every,
+        select_metric=f"{args.select_metric}_mae",
+        grad_clip=args.grad_clip if args.grad_clip > 0 else None,
         ema_decay=args.ema_decay,
     )
+    metadata["energy_mean"] = float(energy_mean)
+    metadata["energy_std"] = float(energy_std)
+    def print_progress(row: dict[str, float]) -> None:
+        print(
+            f"epoch={row['epoch']} train_loss={row['train_loss']:.6g} "
+            f"val_energy_mae={row['energy_mae']:.6g} val_force_mae={row['force_mae']:.6g} "
+            f"lr={optimizer.param_groups[0]['lr']:.3g}",
+            flush=True,
+        )
+
+    trainer = Trainer(
+        model,
+        task,
+        optimizer,
+        config,
+        scheduler=scheduler,
+        device=device,
+        metadata=metadata,
+        on_validation=print_progress,
+    )
+    result = trainer.fit(train_loader, val_loader, resume_from=args.resume_from_checkpoint)
+    test_metrics = trainer.test(test_loader)
+    print(
+        f"best_val_{config.select_metric}={result.best_metric:.6g} best_epoch={result.best_epoch} "
+        f"test_energy_mae={test_metrics['energy_mae']:.6g} test_force_mae={test_metrics['force_mae']:.6g}"
+    )
+    return result.best_metric, test_metrics["energy_mae"], test_metrics["force_mae"]
 
 
 if __name__ == "__main__":
