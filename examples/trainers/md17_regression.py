@@ -10,6 +10,7 @@ indices as the test set, and test MAEs reported in meV and meV/A.
 from __future__ import annotations
 
 import argparse
+import time
 from functools import partial
 from pathlib import Path
 
@@ -193,7 +194,7 @@ def main(argv=None):
     for split in args.splits:
         train_idx, val_idx, test_idx = rmd17_split_indices(splits_dir, split, args.num_val, args.seed)
         checkpoint_path = base_checkpoint.with_name(f"{base_checkpoint.stem}_split{split}{base_checkpoint.suffix}")
-        print(f"rmd17 split={split}")
+        print(f"rmd17 split={split}", flush=True)
         _, test_energy_mae, test_force_mae = run_split(
             args, device, dataset, train_idx, val_idx, test_idx, str(checkpoint_path)
         )
@@ -258,7 +259,8 @@ def run_split(
     print(
         f"device={device} dataset={args.dataset} molecule={args.molecule} "
         f"train={train_idx.numel()} val={val_idx.numel()} test={test_idx.numel()} "
-        f"mean={energy_mean.item():.6g} std={energy_std.item():.6g}"
+        f"mean={energy_mean.item():.6g} std={energy_std.item():.6g}",
+        flush=True,
     )
 
     # ----- DataLoaders -----
@@ -399,13 +401,19 @@ def run_split(
     )
     metadata["energy_mean"] = float(energy_mean)
     metadata["energy_std"] = float(energy_std)
+
+    last_time = time.perf_counter()
+
     def print_progress(row: dict[str, float]) -> None:
+        nonlocal last_time
+        now = time.perf_counter()
         print(
             f"epoch={row['epoch']} train_loss={row['train_loss']:.6g} "
             f"val_energy_mae={row['energy_mae']:.6g} val_force_mae={row['force_mae']:.6g} "
-            f"lr={optimizer.param_groups[0]['lr']:.3g}",
+            f"lr={optimizer.param_groups[0]['lr']:.3g} time={now - last_time:.1f}s",
             flush=True,
         )
+        last_time = now
 
     trainer = Trainer(
         model,
@@ -417,11 +425,18 @@ def run_split(
         metadata=metadata,
         on_validation=print_progress,
     )
+    print(
+        f"Starting the training process: model={args.model} epochs={args.epochs} "
+        f"steps_per_epoch={len(train_loader)} parameters={sum(p.numel() for p in model.parameters())}",
+        flush=True,
+    )
+    last_time = time.perf_counter()
     result = trainer.fit(train_loader, val_loader, resume_from=args.resume_from_checkpoint)
     test_metrics = trainer.test(test_loader)
     print(
         f"best_val_{config.select_metric}={result.best_metric:.6g} best_epoch={result.best_epoch} "
-        f"test_energy_mae={test_metrics['energy_mae']:.6g} test_force_mae={test_metrics['force_mae']:.6g}"
+        f"test_energy_mae={test_metrics['energy_mae']:.6g} test_force_mae={test_metrics['force_mae']:.6g}",
+        flush=True,
     )
     return result.best_metric, test_metrics["energy_mae"], test_metrics["force_mae"]
 
