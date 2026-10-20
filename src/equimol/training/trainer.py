@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +52,7 @@ class Trainer:
         scheduler: LRScheduler | ReduceLROnPlateau | None = None,
         device: torch.device | str | None = None,
         metadata: dict[str, Any] | None = None,
+        on_validation: Callable[[dict[str, float]], None] | None = None,
     ) -> None:
         """Set up the loop; the EMA copy of the model is made here if enabled.
 
@@ -63,6 +65,8 @@ class Trainer:
                 selected validation metric; any other scheduler once per epoch.
             device: Device batches are moved to. Defaults to CPU.
             metadata: Extra information saved in every checkpoint.
+            on_validation: Called with each validation's history row, after
+                its checkpoints are written (e.g. to print progress).
         """
         self.model = model
         self.optimizer = optimizer
@@ -72,6 +76,7 @@ class Trainer:
 
         self.device = torch.device(device) if device is not None else torch.device("cpu")
         self.metadata = metadata if metadata is not None else {}
+        self.on_validation = on_validation
 
         if self.config.ema_decay is not None:
             self.ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay))
@@ -150,6 +155,8 @@ class Trainer:
                 best_epoch = epoch
                 torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.best)
             torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.last)
+            if self.on_validation is not None:
+                self.on_validation(history[-1])
 
         return FitResult(best_metric=best_metric, best_epoch=best_epoch, history=history)
 

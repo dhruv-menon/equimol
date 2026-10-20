@@ -209,6 +209,27 @@ def test_validation_runs_every_eval_every_epochs_and_after_the_last(tmp_path):
         assert {"epoch", "train_loss", "loss", "mae"} <= set(row)
 
 
+def test_on_validation_is_called_with_each_history_row_after_checkpointing(tmp_path):
+    seen = []
+
+    def on_validation(row):
+        last = _load(tmp_path / "ckpt.last.pt")
+        seen.append((dict(row), last["epoch"]))
+
+    trainer = Trainer(
+        _toy_model(),
+        ToyRegression(),
+        torch.optim.SGD(_toy_model().parameters(), lr=0.05),
+        TrainerConfig(epochs=5, checkpoint_path=tmp_path / "ckpt.pt", eval_every=2),
+        on_validation=on_validation,
+    )
+    result = trainer.fit(_toy_loader(), _toy_loader())
+
+    assert [row for row, _ in seen] == result.history
+    # Checkpoints for that validation are already on disk when the callback runs.
+    assert [epoch for _, epoch in seen] == [2, 4, 5]
+
+
 def test_evaluation_keeps_autograd_enabled(tmp_path):
     trainer = _trainer(tmp_path, task=GradientInEvaluation(), epochs=1, ema_decay=0.9)
 
