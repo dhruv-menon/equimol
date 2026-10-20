@@ -15,6 +15,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
@@ -134,6 +135,7 @@ def train_epoch(
         use_bond_features: bool = False,
         use_angle_features: bool = False,
         use_torsion_features: bool = False,
+        ema: AveragedModel | None = None,
         ) -> float:
 
     epoch_loss = 0.
@@ -183,6 +185,8 @@ def train_epoch(
         if grad_clip is not None and grad_clip > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
         optimizer.step()
+        if ema is not None:
+            ema.update_parameters(model)
 
         epoch_loss = epoch_loss + loss.detach().item()
         batch_count = batch_count + 1
@@ -281,10 +285,33 @@ def trainer(
         use_angle_features: bool = False,
         use_torsion_features: bool = False,
         resume_from_checkpoint: str | None = None,
+        select_metric: str = "force",
+        scheduler: optim.lr_scheduler.ReduceLROnPlateau | None = None,
+        ema_decay: float | None = None,
         ):
+    """Train, keep the best checkpoint by validation `select_metric` MAE, and
+    evaluate it on the test set.
+
+    scheduler is stepped on the selected validation MAE after each validation.
+    With ema_decay, an exponential moving average of the weights is used for
+    validation and test; checkpoint["model"] holds the raw weights and
+    checkpoint["ema"] the averaged ones.
+
+    Returns (best selected val MAE, test_energy_mae, test_force_mae).
+    """
 
     if eval_every <= 0:
         raise ValueError(f"eval_every must be positive, got {eval_every}")
+    if select_metric not in ("energy", "force"):
+        raise ValueError(f"select_metric must be 'energy' or 'force', got {select_metric!r}")
+    if ema_decay is not None and not 0.0 < ema_decay < 1.0:
+        raise ValueError(f"ema_decay must be in (0, 1), got {ema_decay}")
+
+    ema = None
+    if ema_decay is not None:
+        ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(ema_decay))
+    # Weights used for validation and test.
+    eval_model = ema.module if ema is not None else model
 
     checkpoint_path = Path(checkpoint_path)
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
@@ -301,6 +328,13 @@ def trainer(
         start_epoch = int(resume_checkpoint.get("epoch", 0))
         best_val_mae = float(resume_checkpoint.get("best_val_mae", best_val_mae))
         history = list(resume_checkpoint.get("history", []))
+        if scheduler is not None and resume_checkpoint.get("scheduler") is not None:
+            scheduler.load_state_dict(resume_checkpoint["scheduler"])
+        if ema is not None and resume_checkpoint.get("ema") is not None:
+            ema.module.load_state_dict(resume_checkpoint["ema"])
+            # AveragedModel copies the weights on its first update; mark the
+            # average as initialised so resuming continues it instead.
+            ema.n_averaged.fill_(1)
         print(f"resumed_from={resume_from_checkpoint} start_epoch={start_epoch}")
 
     for epoch_idx in range(start_epoch + 1, epochs + 1):
@@ -321,11 +355,12 @@ def trainer(
             grad_clip=grad_clip,
             use_bond_features=use_bond_features,
             use_angle_features=use_angle_features,
-            use_torsion_features=use_torsion_features)
+            use_torsion_features=use_torsion_features,
+            ema=ema)
 
         if epoch_idx % eval_every == 0 or epoch_idx == epochs:
             val_metrics = evaluate(
-                model=model,
+                model=eval_model,
                 loader=val_loader,
                 radial_basis=radial_basis,
                 device=device,
@@ -341,9 +376,13 @@ def trainer(
             )
             val_energy_mae = val_metrics["energy_mae"]
             val_force_mae = val_metrics["force_mae"]
+            val_selected_mae = val_metrics[f"{select_metric}_mae"]
+            if scheduler is not None:
+                scheduler.step(val_selected_mae)
             print(
                 f"epoch={epoch_idx:03d} train_loss={loss:.6g} "
-                f"val_energy_mae={val_energy_mae:.6g} val_force_mae={val_force_mae:.6g}"
+                f"val_energy_mae={val_energy_mae:.6g} val_force_mae={val_force_mae:.6g} "
+                f"lr={optimizer.param_groups[0]['lr']:.3g}"
             )
             history.append(
                 {
@@ -364,10 +403,13 @@ def trainer(
                 "test_energy_mae": None,
                 "test_force_mae": None,
                 "metadata": metadata or {},
+                "select_metric": select_metric,
+                "scheduler": scheduler.state_dict() if scheduler is not None else None,
+                "ema": ema.module.state_dict() if ema is not None else None,
             }
 
-            if val_energy_mae < best_val_mae:
-                best_val_mae = val_energy_mae
+            if val_selected_mae < best_val_mae:
+                best_val_mae = val_selected_mae
                 checkpoint["best_val_mae"] = best_val_mae
                 torch.save(checkpoint, checkpoint_path)
 
@@ -376,8 +418,10 @@ def trainer(
 
     checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model"])
+    if ema is not None:
+        ema.module.load_state_dict(checkpoint["ema"])
     test_metrics = evaluate(
-        model=model,
+        model=eval_model,
         loader=test_loader,
         radial_basis=radial_basis,
         device=device,
@@ -400,7 +444,7 @@ def trainer(
     torch.save(checkpoint, checkpoint_path)
     torch.save(checkpoint, last_checkpoint_path)
     print(
-        f"best_val_energy_mae={best_val_mae:.6g} "
+        f"best_val_{select_metric}_mae={best_val_mae:.6g} "
         f"test_energy_mae={test_energy_mae:.6g} test_force_mae={test_force_mae:.6g}"
     )
     return best_val_mae, test_energy_mae, test_force_mae
@@ -462,6 +506,13 @@ def main(argv=None):
     ap.add_argument("--egnn-coord-step-size", type=float, default=0.1)
     ap.add_argument("--egnn-pooling", choices=["sum", "mean"], default="mean")
     ap.add_argument("--egnn-eps", type=float, default=1e-8)
+    ap.add_argument("--select-metric", choices=["energy", "force"], default="force",
+                    help="Validation MAE that picks the best checkpoint and drives the LR scheduler")
+    ap.add_argument("--lr-scheduler", choices=["none", "plateau"], default="plateau")
+    ap.add_argument("--lr-factor", type=float, default=0.5, help="LR multiplier on a plateau")
+    ap.add_argument("--lr-patience", type=int, default=10, help="Validations without improvement before cutting the LR")
+    ap.add_argument("--min-lr", type=float, default=1e-6)
+    ap.add_argument("--ema-decay", type=float, default=None, help="EMA decay of the weights in (0, 1); off by default")
     args = ap.parse_args(argv)
 
     if args.dataset == "rmd17" and args.resume_from_checkpoint is not None and len(args.splits) > 1:
@@ -662,6 +713,14 @@ def run_split(
         params = model.parameters(),
         lr = args.lr,
         weight_decay=args.weight_decay)
+    scheduler = None
+    if args.lr_scheduler == "plateau":
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            factor=args.lr_factor,
+            patience=args.lr_patience,
+            min_lr=args.min_lr,
+        )
 
     metadata = vars(args).copy()
     metadata["checkpoint_path"] = checkpoint_path
@@ -691,6 +750,9 @@ def run_split(
         use_angle_features=args.use_angle_features,
         use_torsion_features=args.use_torsion_features,
         resume_from_checkpoint=args.resume_from_checkpoint,
+        select_metric=args.select_metric,
+        scheduler=scheduler,
+        ema_decay=args.ema_decay,
     )
 
 
