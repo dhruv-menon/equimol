@@ -1,4 +1,11 @@
-"""Train an EGNN regressor on an MD17 trajectory."""
+"""Train an EGNN energy/force regressor on MD17 or revised MD17 (rMD17).
+
+rMD17 follows the NequIP/MACE protocol: for each official split, 950 train and
+50 validation frames from the official train indices, the official test
+indices as the test set, and test MAEs reported in meV and meV/A.
+
+    python examples/trainers/md17_regression.py --dataset rmd17 --datapath data/rmd17 --splits 1 2 3 4 5
+"""
 
 from __future__ import annotations
 
@@ -13,11 +20,15 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from equimol.data import (
+    KCAL_MOL_TO_MEV,
     build_radial_basis,
     compute_energy_stats,
     load_md17,
+    load_rmd17,
     prepare_md17_batch,
+    read_rmd17_split,
     split_md17,
+    split_rmd17,
 )
 
 from equimol.models import AttentiveEGNNRegressor, EGNNRegressor, IrrepEGNNRegressor, VectorEGNNRegressor
@@ -44,6 +55,45 @@ def shrink_indices(
         val_idx[:val_size],
         test_idx[:test_size],
     )
+
+
+def load_rmd17_dataset(datapath: str | Path, molecule: str) -> tuple[list, Path]:
+    """Load an rMD17 molecule from the extracted rMD17 directory.
+
+    Layout (as in the official rmd17.tar.bz2):
+        <datapath>/npz_data/rmd17_<molecule>.npz
+        <datapath>/splits/index_{train,test}_0k.csv
+
+    Returns the frames and the splits directory. Load once and reuse the
+    frames for every split; only the indices change between splits.
+    """
+    datapath = Path(datapath)
+    npz_path = datapath / "npz_data" / f"rmd17_{molecule}.npz"
+    splits_dir = datapath / "splits"
+    if not npz_path.is_file():
+        raise FileNotFoundError(f"rMD17 file not found: {npz_path}")
+    if not splits_dir.is_dir():
+        raise FileNotFoundError(f"rMD17 splits directory not found: {splits_dir}")
+    return load_rmd17(npz_path), splits_dir
+
+
+def rmd17_split_indices(
+    splits_dir: str | Path,
+    split: int,
+    num_val: int,
+    seed: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Official split -> (train, val, test): val is carved from the official train set."""
+    official_train_idx, test_idx = read_rmd17_split(splits_dir, split=split)
+    train_idx, val_idx = split_rmd17(official_train_idx, num_val=num_val, seed=seed)
+    return train_idx, val_idx, test_idx
+
+
+def subset_dataset(dataset, indices: torch.Tensor):
+    """Select frames by index from a PyG dataset (md17) or a list of frames (rmd17)."""
+    if isinstance(dataset, list):
+        return [dataset[int(i)] for i in indices]
+    return dataset[indices.tolist()]
 
 def calculate_force(
     energy: torch.Tensor,
@@ -125,7 +175,9 @@ def train_epoch(
 
         target_norm = (target_energy - energy_mean.to(device)) / energy_std.to(device)
         energy_loss = mse_loss(pred, target_norm)
-        force_loss = l1_loss(pred_force, target_force)
+        # Forces are -dE/dx, so they share the energy scale: measuring both
+        # errors in units of energy_std keeps the loss independent of units.
+        force_loss = l1_loss(pred_force / energy_std.to(device), target_force / energy_std.to(device))
         loss = lambda_energy * energy_loss + lambda_force * force_loss
         loss.backward()
         if grad_clip is not None and grad_clip > 0:
@@ -356,9 +408,17 @@ def trainer(
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Trainer for MD17 energy regression using equimol")
-    ap.add_argument("--datapath", type=str, required=True, help="Path to MD17 dataset root")
-    ap.add_argument("--molecule", type=str, default="aspirin", help="MD17 molecule name")
+    ap.add_argument("--dataset", choices=["md17", "rmd17"], default="md17", help="Original MD17 or revised MD17")
+    ap.add_argument(
+        "--datapath",
+        type=str,
+        required=True,
+        help="MD17: PyG dataset root. rMD17: extracted rmd17 directory with npz_data/ and splits/",
+    )
+    ap.add_argument("--molecule", type=str, default="aspirin", help="Molecule name")
     ap.add_argument("--seed", type=int, default=42, help="Seed for deterministic splitting")
+    ap.add_argument("--splits", type=int, nargs="+", default=[1], help="rMD17: official split ids to run (1-5)")
+    ap.add_argument("--num-val", type=int, default=50, help="rMD17: validation frames held out of the official train set")
     ap.add_argument("--train-frac", type=float, default=0.9, help="Training set fraction in (0, 1)")
     ap.add_argument("--val-frac", type=float, default=0.05, help="Validation set fraction in [0, 1)")
     ap.add_argument("--fast-dev-run", action="store_true", help="Use small deterministic subsets")
@@ -403,20 +463,82 @@ def main(argv=None):
     ap.add_argument("--egnn-pooling", choices=["sum", "mean"], default="mean")
     ap.add_argument("--egnn-eps", type=float, default=1e-8)
     args = ap.parse_args(argv)
-    set_seed(args.seed)
+
+    if args.dataset == "rmd17" and args.resume_from_checkpoint is not None and len(args.splits) > 1:
+        raise ValueError("--resume-from-checkpoint resumes one run; pass a single --splits value")
 
     # ----- Resolve device -----
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ----- Load MD17 & generate splits -----
     datapath = Path(args.datapath)
-    dataset = load_md17(str(datapath), name=args.molecule)
-    train_idx, val_idx, test_idx = split_md17(
-        num_items=len(dataset),
-        train_frac=args.train_frac,
-        val_frac=args.val_frac,
-        seed=args.seed,
+    checkpoint_name = args.molecule.replace(" ", "_").replace("/", "_")
+
+    if args.dataset == "md17":
+        # ----- Load MD17 & generate a random split -----
+        dataset = load_md17(str(datapath), name=args.molecule)
+        train_idx, val_idx, test_idx = split_md17(
+            num_items=len(dataset),
+            train_frac=args.train_frac,
+            val_frac=args.val_frac,
+            seed=args.seed,
+        )
+        checkpoint_path = args.checkpoint_path or f"checkpoints/md17/{checkpoint_name}_energy.pt"
+        run_split(args, device, dataset, train_idx, val_idx, test_idx, checkpoint_path)
+        return None
+
+    # ----- Load rMD17 once; each official split only changes the indices -----
+    dataset, splits_dir = load_rmd17_dataset(datapath, args.molecule)
+    base_checkpoint = Path(args.checkpoint_path or f"checkpoints/rmd17/{checkpoint_name}_energy.pt")
+
+    per_split = []
+    for split in args.splits:
+        train_idx, val_idx, test_idx = rmd17_split_indices(splits_dir, split, args.num_val, args.seed)
+        checkpoint_path = base_checkpoint.with_name(f"{base_checkpoint.stem}_split{split}{base_checkpoint.suffix}")
+        print(f"rmd17 split={split}")
+        _, test_energy_mae, test_force_mae = run_split(
+            args, device, dataset, train_idx, val_idx, test_idx, str(checkpoint_path)
+        )
+        per_split.append(
+            {
+                "split": split,
+                "energy_mae_mev": float(KCAL_MOL_TO_MEV(test_energy_mae)),
+                "force_mae_mev": float(KCAL_MOL_TO_MEV(test_force_mae)),
+            }
+        )
+
+    results = {
+        "per_split": per_split,
+        "energy_mae_mev": mean_and_std([row["energy_mae_mev"] for row in per_split]),
+        "force_mae_mev": mean_and_std([row["force_mae_mev"] for row in per_split]),
+    }
+    energy_mae_mean, energy_mae_std = results["energy_mae_mev"]
+    force_mae_mean, force_mae_std = results["force_mae_mev"]
+    print(
+        f"rmd17 {args.molecule} splits={args.splits} "
+        f"test_energy_mae={energy_mae_mean:.4g}±{energy_mae_std:.2g} meV "
+        f"test_force_mae={force_mae_mean:.4g}±{force_mae_std:.2g} meV/A"
     )
+    return results
+
+
+def mean_and_std(values: list[float]) -> tuple[float, float]:
+    """Mean and population standard deviation (0.0 for a single value)."""
+    values = torch.tensor(values, dtype=torch.float64)
+    return float(values.mean()), float(values.std(unbiased=False))
+
+
+def run_split(
+    args: argparse.Namespace,
+    device: torch.device,
+    dataset,
+    train_idx: torch.Tensor,
+    val_idx: torch.Tensor,
+    test_idx: torch.Tensor,
+    checkpoint_path: str,
+) -> tuple[float, float, float]:
+    """Build loaders, model and optimizer for one split, train, and return
+    (best_val_mae, test_energy_mae, test_force_mae) in kcal/mol units."""
+    set_seed(args.seed)
 
     if args.fast_dev_run:
         train_idx, val_idx, test_idx = shrink_indices(
@@ -435,7 +557,7 @@ def main(argv=None):
     )
 
     print(
-        f"device={device} molecule={args.molecule} "
+        f"device={device} dataset={args.dataset} molecule={args.molecule} "
         f"train={train_idx.numel()} val={val_idx.numel()} test={test_idx.numel()} "
         f"mean={energy_mean.item():.6g} std={energy_std.item():.6g}"
     )
@@ -447,19 +569,19 @@ def main(argv=None):
         "persistent_workers": args.num_workers > 0,
     }
     train_loader = DataLoader(
-        dataset[train_idx.tolist()],
+        subset_dataset(dataset, train_idx),
         batch_size=args.batch_size,
         shuffle=True,
         **loader_kwargs,
     )
     val_loader = DataLoader(
-        dataset[val_idx.tolist()],
+        subset_dataset(dataset, val_idx),
         batch_size=args.batch_size,
         shuffle=False,
         **loader_kwargs,
     )
     test_loader = DataLoader(
-        dataset[test_idx.tolist()],
+        subset_dataset(dataset, test_idx),
         batch_size=args.batch_size,
         shuffle=False,
         **loader_kwargs,
@@ -541,12 +663,10 @@ def main(argv=None):
         lr = args.lr,
         weight_decay=args.weight_decay)
 
-    checkpoint_name = args.molecule.replace(" ", "_").replace("/", "_")
-    checkpoint_path = args.checkpoint_path or f"checkpoints/md17/{checkpoint_name}_energy.pt"
     metadata = vars(args).copy()
     metadata["checkpoint_path"] = checkpoint_path
 
-    trainer(
+    return trainer(
         model=model,
         optimizer=optimizer,
         train_loader=train_loader,
