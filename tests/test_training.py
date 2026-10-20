@@ -1,8 +1,8 @@
 """Specification tests for equimol.training, the task-agnostic training loop.
 
-These tests define the API extracted from examples/trainers/*.py; they fail
-until it is implemented. The loop knows nothing about energies, forces or
-diffusion: a Task supplies the loss and the validation metrics.
+These tests define the API extracted from examples/trainers/*.py. The loop
+knows nothing about energies, forces or diffusion: a Task supplies the loss
+and the validation metrics.
 
     from equimol.training import FitResult, Trainer, TrainerConfig, to_device
 
@@ -48,7 +48,6 @@ Checkpoint keys:
 FitResult: best_metric: float, best_epoch: int, history: list[dict].
 """
 
-import copy
 from pathlib import Path
 
 import pytest

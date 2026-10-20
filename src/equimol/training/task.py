@@ -8,17 +8,10 @@ from torch import nn
 
 @runtime_checkable
 class Task(Protocol):
-    """What the Trainer needs from a task. This file is the contract; it has
-    no implementation on purpose.
+    """Interface between the Trainer and a learning problem.
 
-    A Protocol is structural typing: any object with these two methods is a
-    Task, no inheritance needed. That is what lets new tasks (and, later, new
-    architectures) plug in without touching equimol itself.
-
-    Examples (to be written in later steps):
-        EnergyForceTask          loss = energy MSE + force L1, metrics in kcal/mol
-        PropertyTask             loss = MSE on one QM9 target, metric = MAE
-        CoordinateDenoisingTask  loss = noise-prediction MSE at random timesteps
+    Any object with these two methods is a Task (structural typing), so new
+    tasks plug in without subclassing anything in equimol.
     """
 
     def loss(self, model: nn.Module, batch: Any) -> torch.Tensor:
@@ -31,11 +24,11 @@ class Task(Protocol):
         ...
 
     def evaluate(self, model: nn.Module, loader: Any, device: torch.device) -> dict[str, float]:
-        """Validation/test metrics over a whole loader; lower is better for
-        the metric the Trainer selects on.
+        """Validation/test metrics over a whole loader; lower is better for the
+        metric the Trainer selects on.
 
-        The Trainer has called model.eval() but does NOT disable autograd,
-        so tasks can compute forces as -dE/dx. Use torch.no_grad() inside
-        when gradients are not needed. Move batches with to_device(batch, device).
+        The Trainer has called model.eval() but does not disable autograd, so
+        tasks can compute forces as -dE/dx. Use torch.no_grad() inside when
+        gradients are not needed, and move batches with to_device(batch, device).
         """
         ...

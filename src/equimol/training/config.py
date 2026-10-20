@@ -6,12 +6,9 @@ from pathlib import Path
 
 @dataclass
 class TrainerConfig:
-    """Loop settings that are the same for every task.
+    """Training-loop settings shared by every task.
 
-    Kept as a plain dataclass so it can later be built from YAML
-    (`equimol train config.yaml`) and saved into checkpoints with
-    dataclasses.asdict(). Model, optimizer and task settings do NOT live
-    here; they belong to their own configs.
+    Model, optimizer and task settings live in their own configs.
 
     Attributes:
         epochs: Total epochs to train (also the target when resuming).
@@ -33,17 +30,7 @@ class TrainerConfig:
     ema_decay: float | None = None
 
     def __post_init__(self) -> None:
-        """Validate eagerly, so a bad config fails before any data loads.
-
-        Raise ValueError (with the offending value in the message) when:
-            epochs <= 0
-            eval_every <= 0
-            grad_clip is not None and grad_clip <= 0
-            ema_decay is not None and not 0 < ema_decay < 1
-
-        Also normalise checkpoint_path to a Path here, so the Trainer can rely
-        on it. (Tests: test_trainer_config_rejects_invalid_values)
-        """
+        """Validate the settings and normalise checkpoint_path to a Path."""
         if self.epochs <= 0:
             raise ValueError(f"epochs must be positive, got {self.epochs}")
         if self.eval_every <= 0:
@@ -57,7 +44,7 @@ class TrainerConfig:
 
 @dataclass
 class FitResult:
-    """What Trainer.fit() returns.
+    """Result of Trainer.fit().
 
     Attributes:
         best_metric: Best (lowest) value of select_metric seen in validation.
