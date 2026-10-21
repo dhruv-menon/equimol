@@ -59,6 +59,7 @@ class EnergyForceTask:
         *,
         lambda_energy: float = 1.0,
         lambda_force: float = 1.0,
+        per_atom_energy: bool = True,
     ) -> None:
         """Validate and store the task settings.
 
@@ -69,6 +70,10 @@ class EnergyForceTask:
             energy_std: Training-set energy standard deviation, in data units.
             lambda_energy: Weight of the energy loss term.
             lambda_force: Weight of the force loss term.
+            per_atom_energy: Divide each graph's energy error by its number of
+                atoms before squaring, as NequIP and MACE do. Without it, the
+                energy term dominates early training and the model can settle
+                on predicting the mean energy with zero forces.
 
         Raises:
             ValueError: If energy_std <= 0, a weight is negative, or both weights
@@ -86,6 +91,7 @@ class EnergyForceTask:
         self.lambda_force = float(lambda_force)
         self.energy_mean = float(energy_mean)
         self.energy_std = float(energy_std)
+        self.per_atom_energy = per_atom_energy
 
     def predict(
         self,
@@ -125,13 +131,16 @@ class EnergyForceTask:
         """Weighted sum of the normalised energy MSE and the force L1 loss.
 
         Both terms are measured in units of energy_std, so the loss does not depend
-        on the energy unit.
+        on the energy unit. With per_atom_energy, each graph's energy error is
+        divided by its number of atoms.
         """
         energy, force, geometric_batch = self.predict(model=model, batch=batch, create_graph=True)
         target_energy = geometric_batch.y
-        target_energy_norm = (target_energy - self.energy_mean) / self.energy_std
-        energy_norm = (energy - self.energy_mean) / self.energy_std
-        energy_loss = F.mse_loss(energy_norm, target_energy_norm)
+        energy_error = (energy - target_energy) / self.energy_std
+        if self.per_atom_energy:
+            num_atoms = torch.bincount(geometric_batch.batch, minlength=energy.numel())
+            energy_error = energy_error / num_atoms.to(energy_error.dtype)
+        energy_loss = energy_error.pow(2).mean()
 
         target_force = geometric_batch.force
         target_force_norm = target_force / self.energy_std

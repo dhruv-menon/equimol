@@ -11,7 +11,8 @@ trainer) goes away.
 Wiring the script must do, per run (one rMD17 split, or the md17 split):
 
     task = EnergyForceTask(featurize, energy_mean, energy_std,
-                           lambda_energy=--lambda-energy, lambda_force=--lambda-force)
+                           lambda_energy=--lambda-energy, lambda_force=--lambda-force,
+                           per_atom_energy=--energy-loss == "per-atom")   # default per-atom
         featurize builds the graph and edge features from the CLI settings
         (--graph, --radius, --k, --num-atom-types, edge featurizer, bond/angle/
         torsion features); energy stats come from the train frames only.
@@ -260,6 +261,14 @@ def test_task_loss_weights_come_from_the_cli(tmp_path, fake_trainer):
     task = fake_trainer[0]["task"]
     assert task.lambda_energy == pytest.approx(0.5)
     assert task.lambda_force == pytest.approx(20.0)
+
+
+def test_energy_loss_defaults_to_per_atom_and_can_use_totals(tmp_path, fake_trainer):
+    md17_regression.main(_argv(tmp_path))
+    md17_regression.main(_argv(tmp_path, "--energy-loss", "total"))
+
+    assert fake_trainer[0]["task"].per_atom_energy is True
+    assert fake_trainer[1]["task"].per_atom_energy is False
 
 
 # ----- Trainer settings -----
