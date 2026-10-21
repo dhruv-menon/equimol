@@ -126,6 +126,12 @@ def main(argv=None):
     ap.add_argument("--weight-decay", type=float, default=0.01)
     ap.add_argument("--lambda-energy", type=float, default=1.0)
     ap.add_argument("--lambda-force", type=float, default=1.0)
+    ap.add_argument(
+        "--energy-loss",
+        choices=["per-atom", "total"],
+        default="per-atom",
+        help="Energy MSE on per-atom errors (NequIP/MACE convention) or on total energies",
+    )
     ap.add_argument("--grad-clip", type=float, default=1.0)
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--eval-every", type=int, default=1)
@@ -389,7 +395,12 @@ def run_split(
         use_torsion_features=args.use_torsion_features,
     )
     task = EnergyForceTask(
-        featurize, energy_mean, energy_std, lambda_energy=args.lambda_energy, lambda_force=args.lambda_force
+        featurize,
+        energy_mean,
+        energy_std,
+        lambda_energy=args.lambda_energy,
+        lambda_force=args.lambda_force,
+        per_atom_energy=args.energy_loss == "per-atom",
     )
     config = TrainerConfig(
         epochs=args.epochs,

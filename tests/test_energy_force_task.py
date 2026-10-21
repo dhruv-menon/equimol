@@ -14,6 +14,7 @@ the Trainer needs (equimol.training.Task):
         *,
         lambda_energy: float = 1.0, # >= 0, not both zero
         lambda_force: float = 1.0,
+        per_atom_energy: bool = True,
     )
     task.predict(model, batch, *, create_graph) -> (energy [G], force [N, 3], GeometricBatch)
     task.loss(model, batch) -> scalar Tensor
@@ -25,9 +26,11 @@ Conventions:
       energy = model_output * energy_std + energy_mean.
     - Forces are -dE/dpos of the data-unit energy, differentiated with respect
       to the batch positions (so gradients through edge features count).
-    - loss = lambda_energy * MSE(normalised energy)
+    - loss = lambda_energy * mean_g(((E_pred - E_target) / energy_std / n_g)^2)
            + lambda_force  * L1(force / energy_std)
-      Both terms are in units of energy_std, so the loss is unit-invariant.
+      where n_g is graph g's atom count (per_atom_energy=True, the default) or
+      1 (per_atom_energy=False). Both terms are in units of energy_std, so the
+      loss is unit-invariant.
     - evaluate() reports MAEs in data units: energy per graph, force per
       Cartesian component, averaged over the whole loader (not per batch).
 """
@@ -199,22 +202,37 @@ def test_predict_forces_include_gradients_through_edge_features():
 # ----- loss -----
 
 
-def test_loss_is_weighted_normalised_energy_mse_plus_force_l1():
+@pytest.mark.parametrize("per_atom_energy", [True, False])
+def test_loss_is_weighted_normalised_energy_mse_plus_force_l1(per_atom_energy):
     mean, std, w = -10.0, 2.5, 0.3
     lambda_energy, lambda_force = 0.7, 4.0
-    batch = _batch()
+    batch = _batch()  # molecules of 3, 2 and 4 atoms
     pos, target_energy, target_force = batch.pos.clone(), batch.energy.float(), batch.force.clone()
-    task = EnergyForceTask(toy_featurize, mean, std, lambda_energy=lambda_energy, lambda_force=lambda_force)
+    task = EnergyForceTask(
+        toy_featurize,
+        mean,
+        std,
+        lambda_energy=lambda_energy,
+        lambda_force=lambda_force,
+        per_atom_energy=per_atom_energy,
+    )
 
     loss = task.loss(QuadraticEnergy(w), batch)
 
     pred_norm = torch.zeros(3).index_add(0, batch.batch, (pos**2).sum(-1)) * w
+    energy_error = pred_norm - (target_energy - mean) / std
+    if per_atom_energy:
+        energy_error = energy_error / torch.tensor([3.0, 2.0, 4.0])
     pred_force = -2.0 * std * w * pos
-    expected = lambda_energy * F.mse_loss(pred_norm, (target_energy - mean) / std) + lambda_force * F.l1_loss(
+    expected = lambda_energy * energy_error.pow(2).mean() + lambda_force * F.l1_loss(
         pred_force / std, target_force / std
     )
     assert loss.dim() == 0
     torch.testing.assert_close(loss, expected)
+
+
+def test_per_atom_energy_is_the_default():
+    assert EnergyForceTask(toy_featurize, 0.0, 1.0).per_atom_energy is True
 
 
 def test_force_only_loss_trains_the_model_through_the_forces():
