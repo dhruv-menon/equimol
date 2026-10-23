@@ -431,3 +431,13 @@ def test_prints_progress_once_per_validation(tmp_path, capsys):
     progress = [line for line in out.splitlines() if "force_mae" in line and re.search(r"\bepoch\W{0,3}\d", line)]
     epochs = [int(re.search(r"\bepoch\W{0,3}(\d+)", line).group(1)) for line in progress]
     assert epochs == [2, 4]
+
+
+def test_l3_irrep_model_trains_with_ema(tmp_path):
+    # Regression: deepcopy of e3nn l=3 tensor products adds buffers, which broke
+    # AveragedModel's positional buffer sync.
+    md17_regression.main(_argv(
+        tmp_path, "--model", "irrep-egnn", "--ema-decay", "0.99",
+        "--irreps-hidden", "4x0e + 4x1o + 4x2e + 4x3o", "--irreps-edge", "0e + 1o + 2e + 3o",
+        "--irrep-radial-hidden-dim", "8",
+    ))

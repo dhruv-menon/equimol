@@ -44,6 +44,8 @@ Checkpoint keys:
     state_dict, or None), epoch, best_metric, best_epoch, select_metric,
     history (one dict per validation: epoch, train_loss, and every metric),
     config (TrainerConfig as a dict), metadata, test_metrics (None until test()).
+    The ema entry holds only the model's own keys, so it loads strictly into a
+    freshly built model even when the EMA copy has extra buffers.
 
 FitResult: best_metric: float, best_epoch: int, history: list[dict].
 """
@@ -388,6 +390,49 @@ def test_ema_weights_are_used_for_validation_and_test(tmp_path):
     assert metrics == pytest.approx(ema_metrics)
     assert raw_metrics["mae"] != pytest.approx(ema_metrics["mae"])
     assert trainer.eval_model is not trainer.model
+
+
+class GainsBufferOnCopy(nn.Module):
+    """Linear model whose deepcopy registers an extra constant buffer ahead of
+    its own, like e3nn's compiled tensor products at l=3."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.linear = nn.Linear(3, 1)
+        self.register_buffer("scale", torch.ones(1))
+
+    def forward(self, x):
+        return self.linear(x) * self.scale
+
+    def __deepcopy__(self, memo):
+        clone = GainsBufferOnCopy()
+        clone.load_state_dict(self.state_dict())
+        clone._buffers = {"constant": torch.zeros(3, 5, 3), **clone._buffers}
+        return clone
+
+
+def test_ema_syncs_buffers_by_name_when_the_copy_gains_buffers(tmp_path):
+    model = GainsBufferOnCopy()
+    trainer = _trainer(tmp_path, model=model, epochs=2, ema_decay=0.9)
+    model.scale.fill_(3.0)  # after the EMA copy was made
+
+    trainer.fit(_toy_loader(), _toy_loader())
+
+    assert trainer.eval_model.scale.item() == 3.0
+    assert trainer.eval_model.constant.shape == (3, 5, 3)
+
+
+def test_ema_checkpoint_loads_into_a_fresh_model_and_resumes(tmp_path):
+    _trainer(tmp_path, model=GainsBufferOnCopy(), epochs=1, ema_decay=0.9).fit(_toy_loader(), _toy_loader())
+    ema = _load(tmp_path / "ckpt.pt")["ema"]
+
+    GainsBufferOnCopy().load_state_dict(ema)  # strict: only the model's own keys
+
+    resumed = _trainer(tmp_path, model=GainsBufferOnCopy(), epochs=2, ema_decay=0.9)
+    resumed.fit(_toy_loader(), _toy_loader(), resume_from=tmp_path / "ckpt.last.pt")
+    for name, value in ema.items():
+        if name != "scale":
+            assert not torch.equal(resumed.eval_model.state_dict()[name], value)  # training continued
 
 
 def test_without_ema_eval_model_is_the_model(tmp_path):
