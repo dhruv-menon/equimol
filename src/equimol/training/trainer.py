@@ -16,6 +16,29 @@ from .device import to_device
 from .task import Task
 
 
+class _EMA(AveragedModel):
+    """AveragedModel that keeps buffers in sync by name rather than position.
+
+    A deepcopy of some modules (e3nn's compiled tensor products at l=3) registers
+    extra constant buffers, so the copy's buffers no longer line up with the
+    model's. Parameters are unaffected and are averaged as usual.
+    """
+
+    def update_parameters(self, model: nn.Module) -> None:
+        averaged = [p.detach() for p in self.module.parameters()]
+        current = [p.detach().to(a.device) for a, p in zip(averaged, model.parameters(), strict=True)]
+        if self.n_averaged == 0:
+            for a, p in zip(averaged, current):
+                a.copy_(p)
+        else:
+            self.multi_avg_fn(averaged, current, self.n_averaged.to(averaged[0].device))
+
+        buffers = dict(self.module.named_buffers())
+        for name, b in model.named_buffers():
+            buffers[name].detach().copy_(b.detach().to(buffers[name].device))
+        self.n_averaged += 1
+
+
 class Trainer:
     """Generic fit/validate/test loop with checkpoints, EMA and LR schedules.
 
@@ -32,7 +55,8 @@ class Trainer:
         model          raw weights, model.state_dict()
         optimizer      optimizer.state_dict()
         scheduler      scheduler.state_dict() or None
-        ema            EMA weights as a plain model state_dict, or None
+        ema            EMA weights as a plain model state_dict (the model's own
+                       keys only), or None
         epoch          epoch of this validation
         best_metric    best select_metric so far
         best_epoch     epoch of best_metric
@@ -79,7 +103,7 @@ class Trainer:
         self.on_validation = on_validation
 
         if self.config.ema_decay is not None:
-            self.ema = AveragedModel(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay))
+            self.ema = _EMA(model, multi_avg_fn=get_ema_multi_avg_fn(config.ema_decay))
         else:
             self.ema = None
 
@@ -218,7 +242,7 @@ class Trainer:
             "model": self.model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "scheduler": self.scheduler.state_dict() if self.scheduler is not None else None,
-            "ema": self.ema.module.state_dict() if self.ema is not None else None,
+            "ema": self._ema_state() if self.ema is not None else None,
             "epoch": epoch,
             "best_metric": best_metric,
             "best_epoch": best_epoch,
@@ -228,6 +252,11 @@ class Trainer:
             "metadata": self.metadata,
             "test_metrics": None,
         }
+
+    def _ema_state(self) -> dict:
+        """EMA weights restricted to the model's own state_dict keys."""
+        keys = self.model.state_dict().keys()
+        return {k: v for k, v in self.ema.module.state_dict().items() if k in keys}
 
     def _load_state(self, path: str | Path, restore_optimizer: bool = True) -> dict:
         """Load a checkpoint, restore the weights (and the optimizer and scheduler
@@ -241,7 +270,11 @@ class Trainer:
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.model.load_state_dict(checkpoint["model"])
         if self.ema is not None and checkpoint["ema"] is not None:
-            self.ema.module.load_state_dict(checkpoint["ema"])
+            # The checkpoint holds the model's keys only; keep any extra buffers
+            # the EMA copy gained.
+            ema_state = self.ema.module.state_dict()
+            ema_state.update(checkpoint["ema"])
+            self.ema.module.load_state_dict(ema_state)
             self.ema.n_averaged.fill_(1)
         if restore_optimizer:
             self.optimizer.load_state_dict(checkpoint["optimizer"])
