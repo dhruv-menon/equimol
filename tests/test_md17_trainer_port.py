@@ -441,3 +441,11 @@ def test_l3_irrep_model_trains_with_ema(tmp_path):
         "--irreps-hidden", "4x0e + 4x1o + 4x2e + 4x3o", "--irreps-edge", "0e + 1o + 2e + 3o",
         "--irrep-radial-hidden-dim", "8",
     ))
+
+
+def test_summary_reports_wall_clock_time_in_hours(tmp_path, capsys):
+    md17_regression.main(_argv(tmp_path, "--epochs", "1"))
+
+    summary = [line for line in capsys.readouterr().out.splitlines() if "best_epoch=" in line]
+    assert len(summary) == 1
+    assert re.search(r"\bwall_time=\d+\.\d{2}h\b", summary[0])
