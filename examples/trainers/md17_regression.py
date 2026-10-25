@@ -446,7 +446,8 @@ def run_split(
     test_metrics = trainer.test(test_loader)
     print(
         f"best_val_{config.select_metric}={result.best_metric:.6g} best_epoch={result.best_epoch} "
-        f"test_energy_mae={test_metrics['energy_mae']:.6g} test_force_mae={test_metrics['force_mae']:.6g}",
+        f"test_energy_mae={test_metrics['energy_mae']:.6g} test_force_mae={test_metrics['force_mae']:.6g} "
+        f"wall_time={result.wall_time / 3600:.2f}h",
         flush=True,
     )
     return result.best_metric, test_metrics["energy_mae"], test_metrics["force_mae"]

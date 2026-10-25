@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,8 @@ class Trainer:
         config         TrainerConfig as a dict, with checkpoint_path as str
         metadata       the metadata dict passed in (e.g. CLI args)
         test_metrics   None until test() fills it in (best checkpoint only)
+        wall_time      seconds spent in fit() up to this validation, summed over
+                       resumed runs
     """
 
     def __init__(
@@ -150,14 +153,19 @@ class Trainer:
             best_epoch = 0
             history = []
             start_epoch = 0
+            previous_wall_time = 0.0
         else:
             ckpt = self._load_state(resume_from)
             start_epoch = ckpt["epoch"]
             best_metric = ckpt["best_metric"]
             best_epoch = ckpt["best_epoch"]
             history = list(ckpt["history"])
+            previous_wall_time = ckpt.get("wall_time", 0.0)
 
         name = self.config.select_metric
+        # Shifting the start back by the stored time makes every reading below a
+        # running total over resumed runs, without counting downtime between them.
+        start = time.perf_counter() - previous_wall_time
         for epoch in range(start_epoch + 1, self.config.epochs + 1):
             train_loss = self._train_epoch(train_loader)
             if self.scheduler is not None and not isinstance(self.scheduler, ReduceLROnPlateau):
@@ -172,17 +180,23 @@ class Trainer:
             value = metrics[name]
             if isinstance(self.scheduler, ReduceLROnPlateau):
                 self.scheduler.step(value)
+            wall_time = time.perf_counter() - start
 
-            history.append({"epoch": epoch, "train_loss": train_loss, **metrics})
+            history.append({"epoch": epoch, "train_loss": train_loss, **metrics, "wall_time": wall_time})
             if value < best_metric:
                 best_metric = value
                 best_epoch = epoch
-                torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.best)
-            torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history), self.last)
+                torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history, wall_time), self.best)
+            torch.save(self._checkpoint_state(epoch, best_metric, best_epoch, history, wall_time), self.last)
             if self.on_validation is not None:
                 self.on_validation(history[-1])
 
-        return FitResult(best_metric=best_metric, best_epoch=best_epoch, history=history)
+        return FitResult(
+            best_metric=best_metric,
+            best_epoch=best_epoch,
+            history=history,
+            wall_time=time.perf_counter() - start,
+        )
 
     def test(self, loader: Any) -> dict[str, float]:
         """Evaluate the best checkpoint on `loader` and record the metrics in it.
@@ -234,7 +248,7 @@ class Trainer:
         eval_model.eval()
         return self.task.evaluate(eval_model, loader=loader, device=self.device)
 
-    def _checkpoint_state(self, epoch: int, best_metric: float, best_epoch: int, history: list[dict]) -> dict:
+    def _checkpoint_state(self, epoch: int, best_metric: float, best_epoch: int, history: list[dict], wall_time: float) -> dict:
         """Build a checkpoint dict with the keys listed in the class docstring."""
         config = dataclasses.asdict(self.config)
         config["checkpoint_path"] = str(self.config.checkpoint_path)
@@ -251,6 +265,7 @@ class Trainer:
             "config": config,
             "metadata": self.metadata,
             "test_metrics": None,
+            "wall_time": wall_time,
         }
 
     def _ema_state(self) -> dict:
