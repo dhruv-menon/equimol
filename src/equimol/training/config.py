@@ -50,9 +50,13 @@ class FitResult:
         best_metric: Best (lowest) value of select_metric seen in validation.
         best_epoch: Epoch at which best_metric was reached.
         history: One dict per validation, in order:
-            {"epoch": int, "train_loss": float, **metrics_from_task_evaluate}
+            {"epoch": int, "train_loss": float, **metrics_from_task_evaluate,
+             "wall_time": float}
+        wall_time: Seconds spent in fit(), including validation and checkpointing,
+            summed over resumed runs.
     """
 
     best_metric: float
     best_epoch: int
     history: list[dict[str, float]] = field(default_factory=list)
+    wall_time: float = 0.0

@@ -43,13 +43,21 @@ Checkpoint keys:
     model (raw weights), optimizer, scheduler (or None), ema (plain model
     state_dict, or None), epoch, best_metric, best_epoch, select_metric,
     history (one dict per validation: epoch, train_loss, and every metric),
-    config (TrainerConfig as a dict), metadata, test_metrics (None until test()).
+    config (TrainerConfig as a dict), metadata, test_metrics (None until test()),
+    wall_time (seconds of fit() so far, summed over resumed runs).
     The ema entry holds only the model's own keys, so it loads strictly into a
     freshly built model even when the EMA copy has extra buffers.
 
-FitResult: best_metric: float, best_epoch: int, history: list[dict].
+FitResult: best_metric: float, best_epoch: int, history: list[dict],
+    wall_time: float (seconds, default 0.0).
+
+Wall-clock time: fit() measures elapsed time with time.perf_counter(),
+including validation and checkpointing; resumed runs continue the total stored
+in the checkpoint, so downtime between runs is not counted. Each history row
+also carries wall_time, the total at that validation.
 """
 
+import time
 from pathlib import Path
 
 import pytest
@@ -467,3 +475,92 @@ def test_resuming_reproduces_an_uninterrupted_run(tmp_path):
         assert torch.allclose(resumed.eval_model.state_dict()[name], value, atol=1e-6)
     assert resumed.optimizer.param_groups[0]["lr"] == pytest.approx(straight.optimizer.param_groups[0]["lr"])
     assert result.best_epoch == _load(tmp_path / "straight" / "ckpt.pt")["best_epoch"]
+
+
+# ----- wall-clock time -----
+
+class FakeClock:
+    """Stand-in for time.perf_counter that only moves when told to."""
+
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class TimedTask(ToyRegression):
+    """Each training batch costs 1 s and each validation 0.5 s on the fake clock."""
+
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+
+    def loss(self, model, batch):
+        self.clock.advance(1.0)
+        return super().loss(model, batch)
+
+    def evaluate(self, model, loader, device):
+        self.clock.advance(0.5)
+        return super().evaluate(model, loader, device)
+
+
+@pytest.fixture
+def clock(monkeypatch) -> FakeClock:
+    clock = FakeClock()
+    monkeypatch.setattr(time, "perf_counter", clock)
+    return clock
+
+
+# _toy_loader() has 4 batches, so one epoch costs 4 s, plus 0.5 s when it validates.
+
+def test_fit_reports_wall_clock_time_including_validation(tmp_path, clock):
+    trainer = _trainer(tmp_path, task=TimedTask(clock), epochs=3, eval_every=2)
+
+    result = trainer.fit(_toy_loader(), _toy_loader())
+
+    # Validations after epochs 2 and 3: 4 + 4.5 = 8.5 s, then 4.5 s more.
+    assert result.wall_time == pytest.approx(13.0)
+    assert [row["wall_time"] for row in result.history] == pytest.approx([8.5, 13.0])
+
+
+def test_fit_result_wall_time_defaults_to_zero():
+    assert FitResult(best_metric=1.0, best_epoch=1).wall_time == 0.0
+
+
+def test_checkpoints_store_the_wall_clock_time_of_their_validation(tmp_path, clock):
+    # Scripted metrics make epoch 1 the best, so the two checkpoints differ.
+    task = ScriptedTask([{"loss": 1.0}, {"loss": 2.0}])
+    task.loss = TimedTask(clock).loss
+    trainer = _trainer(tmp_path, task=task, epochs=2)
+
+    trainer.fit(_toy_loader(), _toy_loader())
+
+    assert _load(tmp_path / "ckpt.pt")["wall_time"] == pytest.approx(4.0)
+    assert _load(tmp_path / "ckpt.last.pt")["wall_time"] == pytest.approx(8.0)
+
+
+def test_resuming_adds_to_the_stored_wall_clock_time(tmp_path, clock):
+    _trainer(tmp_path, task=TimedTask(clock), epochs=2).fit(_toy_loader(), _toy_loader())
+    clock.advance(1000.0)  # downtime between the runs is not training time
+
+    resumed = _trainer(tmp_path, task=TimedTask(clock), epochs=3)
+    result = resumed.fit(_toy_loader(), _toy_loader(), resume_from=tmp_path / "ckpt.last.pt")
+
+    assert result.wall_time == pytest.approx(13.5)
+    assert [row["wall_time"] for row in result.history] == pytest.approx([4.5, 9.0, 13.5])
+
+
+def test_resuming_a_checkpoint_without_wall_time_starts_from_zero(tmp_path, clock):
+    # Checkpoints written before wall_time existed must still resume.
+    _trainer(tmp_path, task=TimedTask(clock), epochs=1).fit(_toy_loader(), _toy_loader())
+    last = _load(tmp_path / "ckpt.last.pt")
+    del last["wall_time"]
+    torch.save(last, tmp_path / "ckpt.last.pt")
+
+    resumed = _trainer(tmp_path, task=TimedTask(clock), epochs=2)
+    result = resumed.fit(_toy_loader(), _toy_loader(), resume_from=tmp_path / "ckpt.last.pt")
+
+    assert result.wall_time == pytest.approx(4.5)
