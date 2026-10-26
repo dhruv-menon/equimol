@@ -118,17 +118,20 @@ class BesselBasis(nn.Module):
 
     def __init__(self, r_cut: float, num_basis: int = 8) -> None:
         super().__init__()
-        # TODO 1: validate r_cut > 0 and num_basis >= 1 (ValueError), store both.
-        # TODO 2: register n = 1..K as a float buffer, so it moves with .to(device).
-        #   Store n itself, not n * pi / r_cut: integers are exact in float32, but
-        #   a float32 n * pi / r_cut is already rounded, and .double() cannot undo
-        #   that. Form the frequencies in forward, in the input's dtype.
-        raise NotImplementedError
+        if r_cut <= 0:
+            raise ValueError(f"r_cut must be positive, got {r_cut}")
+        if num_basis < 1:
+            raise ValueError(f"num_basis must be >= 1, got {num_basis}")
+        self.r_cut = r_cut
+        self.num_basis = num_basis
+        # n, not n * pi / r_cut: integers are exact in float32, so the frequencies
+        # can be formed in the input's dtype without inheriting float32 rounding.
+        self.register_buffer("n", torch.arange(1, num_basis + 1, dtype=torch.get_default_dtype()))
 
     def forward(self, distance: torch.Tensor) -> torch.Tensor:
-        # TODO 3: bring distance to shape [E, 1], so it broadcasts against [K].
-        # TODO 4: evaluate e_n. sin(x) / r is 0 / 0 at r = 0, which gives NaN
-        #   values and gradients. Rewrite it with torch.sinc (read its docstring:
-        #   it uses the normalised sinc, sin(pi x) / (pi x)), which is finite at 0.
-        raise NotImplementedError
-
+        r = distance.reshape(-1, 1)
+        n = self.n.to(r.dtype)
+        a = torch.pi * n / self.r_cut
+        # sin(a r) / r = a * sinc(n r / r_cut), with torch's sinc(x) = sin(pi x) / (pi x):
+        # finite at r = 0, with finite gradients.
+        return (2 / self.r_cut) ** 0.5 * a * torch.sinc(n * r / self.r_cut)
