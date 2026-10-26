@@ -5,6 +5,8 @@ import torch.nn as nn
 from e3nn import o3
 from e3nn.nn import NormActivation
 
+from .radial import PolynomialCutoff
+
 # ----------------------------------------
 # An e3nn-based equivariant message passing layer.
 #   - Represents node states using arbitrary O(3) irreps, e.g.
@@ -29,7 +31,7 @@ from e3nn.nn import NormActivation
 #    rhat_ij = r_ij / (d_ij + eps)
 #    Y_ij = Y_lm(rhat_ij)
 #    w_ij = phi_r([d_ij, edge_attr_ij])
-#    m_ij = TP(h_j, Y_ij; w_ij)
+#    m_ij = TP(h_j, Y_ij; w_ij) * u(d_ij)    (u = PolynomialCutoff if cutoff is set)
 #    h_i <- sigma_norm(h_i + Linear(sum_j m_ij))
 #
 # Why equivariant:
@@ -58,6 +60,8 @@ class IrrepEGNNLayer(nn.Module):
         residual: bool = True,
         dropout: float = 0.0,
         eps: float = 1e-8,
+        cutoff: float | None = None,
+        envelope_p: int = 6,
     ) -> None:
         super().__init__()
         self.irreps_hidden = o3.Irreps(irreps_hidden)
@@ -66,6 +70,9 @@ class IrrepEGNNLayer(nn.Module):
         self.attention = attention
         self.residual = residual
         self.eps = eps
+        # Messages fade to zero at the cutoff, so a radius graph with that radius
+        # gives an energy that is continuous as edges appear and disappear.
+        self.envelope = PolynomialCutoff(cutoff, envelope_p) if cutoff is not None else None
 
         self.tp = o3.FullyConnectedTensorProduct(
             self.irreps_hidden,
@@ -129,6 +136,8 @@ class IrrepEGNNLayer(nn.Module):
         messages = self.tp(h[src], harmonics, weights)
         if self.attention:
             messages = messages * self.attention_mlp(edge_input)
+        if self.envelope is not None:
+            messages = messages * self.envelope(dist)
 
         aggregated = torch.zeros_like(h)
         aggregated.index_add_(0, dst, messages)
@@ -151,6 +160,8 @@ class IrrepEGNNBackbone(nn.Module):
         residual: bool = True,
         dropout: float = 0.0,
         eps: float = 1e-8,
+        cutoff: float | None = None,
+        envelope_p: int = 6,
     ) -> None:
         super().__init__()
         self.irreps_hidden = o3.Irreps(irreps_hidden)
@@ -165,6 +176,8 @@ class IrrepEGNNBackbone(nn.Module):
                     residual=residual,
                     dropout=dropout,
                     eps=eps,
+                    cutoff=cutoff,
+                    envelope_p=envelope_p,
                 )
                 for _ in range(num_layers)
             ]
