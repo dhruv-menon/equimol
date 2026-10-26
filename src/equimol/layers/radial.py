@@ -62,3 +62,51 @@ class GaussianRadialBasis(nn.Module):
 
         mask = distance > self.cutoff
         return rbf.masked_fill(mask, 0.0)
+
+
+class PolynomialCutoff(nn.Module):
+    """Smooth envelope that takes pairwise distances to zero at a cutoff.
+
+    Multiplying each message by u(r_ij) makes it fade out as atom j leaves the
+    cutoff sphere of atom i, so the energy and forces stay continuous when an
+    edge of a radius graph appears or disappears.
+
+    Shapes:
+        distance: any shape, e.g. [E] or [E, 1]
+        output: same shape and dtype as distance
+
+    Operation (DimeNet, Gasteiger et al. 2020), with d = r / r_cut:
+        u(d) = 1 - (p+1)(p+2)/2 * d^p + p(p+2) * d^(p+1) - p(p+1)/2 * d^(p+2)   for d < 1
+        u(d) = 0                                                                for d >= 1
+
+    Properties:
+        u(0) = 1, and u, du/dr and d2u/dr2 are all zero at r_cut.
+        u is monotonically non-increasing on [0, r_cut], so 0 <= u <= 1.
+    """
+
+    def __init__(self, r_cut: float, p: int = 6) -> None:
+        """
+        Args:
+            r_cut: Cutoff radius, in the same units as the distances.
+            p: Polynomial order; larger p keeps u close to 1 for longer.
+
+        Raises:
+            ValueError: If r_cut <= 0 or p < 1.
+        """
+        super().__init__()
+        # TODO 1: validate r_cut and p (see Raises), then store both.
+        raise NotImplementedError
+
+    def forward(self, distance: torch.Tensor) -> torch.Tensor:
+        """Return the envelope value for each distance."""
+        # TODO 2: scale the distances to d = r / r_cut.
+        # TODO 3: evaluate the polynomial in d.
+        # TODO 4: set the envelope to zero for d >= 1. The polynomial itself grows
+        #   again past d = 1, so this step is not optional. The value and the
+        #   gradient must both be exactly zero there, and finite even when the
+        #   polynomial overflows for very large d: multiplying by a 0/1 mask
+        #   gives 0 * inf = NaN. torch.where and masked_fill have the same trap
+        #   in the backward pass, because the gradient also flows through the
+        #   branch that was not selected. Make sure the polynomial never sees
+        #   a large d in the first place.
+        raise NotImplementedError
