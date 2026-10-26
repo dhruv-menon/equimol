@@ -449,3 +449,35 @@ def test_summary_reports_wall_clock_time_in_hours(tmp_path, capsys):
     summary = [line for line in capsys.readouterr().out.splitlines() if "best_epoch=" in line]
     assert len(summary) == 1
     assert re.search(r"\bwall_time=\d+\.\d{2}h\b", summary[0])
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        (["--model", "irrep-egnn", "--graph", "fully_connected"], "--graph radius"),
+        (["--model", "vector-egnn", "--graph", "radius"], "irrep-egnn"),
+    ],
+)
+def test_cutoff_envelope_rejects_unsupported_settings(tmp_path, extra, message):
+    with pytest.raises(ValueError, match=message):
+        md17_regression.main(_argv(tmp_path, "--cutoff-envelope", "polynomial", *extra))
+
+
+def test_cutoff_envelope_uses_the_graph_radius(tmp_path, fake_trainer):
+    md17_regression.main(_argv(
+        tmp_path, "--model", "irrep-egnn", "--graph", "radius", "--radius", "4.5",
+        "--cutoff-envelope", "polynomial", "--envelope-p", "5",
+        "--irreps-hidden", "4x0e + 4x1o", "--irreps-edge", "0e + 1o", "--irrep-radial-hidden-dim", "8",
+    ))
+
+    (run,) = fake_trainer
+    envelopes = [layer.envelope for layer in run["model"].backbone.layers]
+    assert [(e.r_cut, e.p) for e in envelopes] == [(4.5, 5)]
+
+
+def test_trains_end_to_end_with_a_radius_graph_and_envelope(tmp_path):
+    md17_regression.main(_argv(
+        tmp_path, "--model", "irrep-egnn", "--graph", "radius", "--radius", "4.0",
+        "--cutoff-envelope", "polynomial", "--ema-decay", "0.9",
+        "--irreps-hidden", "4x0e + 4x1o + 4x2e", "--irreps-edge", "0e + 1o + 2e", "--irrep-radial-hidden-dim", "8",
+    ))

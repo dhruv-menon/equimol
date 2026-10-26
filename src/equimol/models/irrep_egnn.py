@@ -74,6 +74,8 @@ class IrrepEGNNRegressor(nn.Module):
         dropout: float = 0.0,
         pooling: str = "sum",
         eps: float = 1e-8,
+        cutoff: float | None = None,
+        envelope_p: int = 6,
     ) -> None:
         super().__init__()
         self.irreps_hidden = o3.Irreps(irreps_hidden)
@@ -98,6 +100,8 @@ class IrrepEGNNRegressor(nn.Module):
             residual=residual,
             dropout=dropout,
             eps=eps,
+            cutoff=cutoff,
+            envelope_p=envelope_p,
         )
         self.readout = nn.Sequential(
             nn.Linear(scalar_dim, scalar_dim),

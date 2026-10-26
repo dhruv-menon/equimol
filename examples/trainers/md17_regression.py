@@ -161,6 +161,9 @@ def main(argv=None):
     ap.add_argument("--egnn-coord-step-size", type=float, default=0.1)
     ap.add_argument("--egnn-pooling", choices=["sum", "mean"], default="mean")
     ap.add_argument("--egnn-eps", type=float, default=1e-8)
+    ap.add_argument("--cutoff-envelope", choices=["none", "polynomial"], default="none",
+                    help="irrep-egnn: fade messages to zero at --radius (needs --graph radius)")
+    ap.add_argument("--envelope-p", type=int, default=6, help="Order of the polynomial cutoff envelope")
     ap.add_argument("--select-metric", choices=["energy", "force"], default="force",
                     help="Validation MAE that picks the best checkpoint and drives the LR scheduler")
     ap.add_argument("--lr-scheduler", choices=["none", "plateau"], default="plateau")
@@ -172,6 +175,13 @@ def main(argv=None):
 
     if args.dataset == "rmd17" and args.resume_from_checkpoint is not None and len(args.splits) > 1:
         raise ValueError("--resume-from-checkpoint resumes one run; pass a single --splits value")
+    if args.cutoff_envelope != "none":
+        # The envelope cutoff is the graph radius: a smaller graph radius would drop
+        # edges whose messages are still nonzero, which is the discontinuity it removes.
+        if args.model != "irrep-egnn":
+            raise ValueError("--cutoff-envelope is only implemented for --model irrep-egnn")
+        if args.graph != "radius":
+            raise ValueError("--cutoff-envelope needs --graph radius; its cutoff is --radius")
 
     # ----- Resolve device -----
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -363,6 +373,8 @@ def run_split(
             dropout=args.egnn_dropout,
             pooling=args.egnn_pooling,
             eps=args.egnn_eps,
+            cutoff=args.radius if args.cutoff_envelope == "polynomial" else None,
+            envelope_p=args.envelope_p,
         ).to(device)
 
     optimizer = optim.AdamW(
