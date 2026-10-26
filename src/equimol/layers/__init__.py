@@ -9,11 +9,12 @@ from .pooling import global_add_pool, global_mean_pool
 from .attentive_egnn import AttentiveEGNNLayer
 from .vector_egnn import VectorEGNNBackbone, VectorEGNNLayer
 from .irrep_egnn import IrrepEGNNBackbone, IrrepEGNNLayer
-from .radial import GaussianRadialBasis, PolynomialCutoff
+from .radial import BesselBasis, GaussianRadialBasis, PolynomialCutoff
 from .time import SinusoidalTimeEmbedding, TimestepEmbedding
 
 __all__ = [
     "AttentiveEGNNLayer",
+    "BesselBasis",
     "EGNNLayer",
     "GaussianRadialBasis",
     "IrrepEGNNBackbone",
